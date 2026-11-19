@@ -755,6 +755,115 @@ def _search_doc(record_id: str) -> dict:
     }
 
 
+def _pc_payload(total_pc: int, record_id: str) -> dict:
+    """A one-record search payload with Primo's article-index (PC) count."""
+    payload = _search_payload()
+    payload["info"].update({"totalResultsLocal": 1, "totalResultsPC": total_pc})
+    payload["docs"][0]["pnx"]["control"]["recordid"] = [record_id]
+    return payload
+
+
+class TestArticleIndexRetry:
+    """Primo answers before CDI has finished when CDI is slow (PC == -1)."""
+
+    async def _run(self, handler, monkeypatch, **kwargs):
+        monkeypatch.setattr(PrimoClient, "_ARTICLE_INDEX_RETRY_DELAY_SECONDS", 0.0)
+        async with httpx.AsyncClient(
+            base_url="https://example.test/primaws/rest/pub",
+            transport=httpx.MockTransport(handler),
+        ) as http_client:
+            client = PrimoClient(http_client, _config())
+            return await client.search("climate change", **kwargs)
+
+    async def test_combined_scope_repeats_until_article_index_answers(self, monkeypatch):
+        requests: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            requests.append(request)
+            if request.url.path.endswith("/facets"):
+                return httpx.Response(200, json=_FACETS_PAYLOAD)
+            pnxs_calls = sum(r.url.path.endswith("/pnxs") for r in requests)
+            if pnxs_calls == 1:
+                return httpx.Response(200, json=_pc_payload(-1, "alma1"))
+            return httpx.Response(200, json=_pc_payload(42, "cdi_1"))
+
+        response = await self._run(handler, monkeypatch)
+
+        # The repeat is the identical search, and facets follow the final one.
+        assert [r.url.path.rsplit("/", 1)[-1] for r in requests] == ["pnxs", "pnxs", "facets"]
+        assert requests[1].url.params == requests[0].url.params
+        assert response.info.total_pc == 42
+        assert [r.record_id for r in response.records] == ["cdi_1"]
+        assert response.article_index_incomplete is False
+
+    async def test_flags_incomplete_when_article_index_never_answers(self, monkeypatch):
+        pnxs_calls = 0
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            nonlocal pnxs_calls
+            if request.url.path.endswith("/facets"):
+                return httpx.Response(200, json=_FACETS_PAYLOAD)
+            pnxs_calls += 1
+            return httpx.Response(200, json=_pc_payload(-1, "alma1"))
+
+        response = await self._run(handler, monkeypatch)
+
+        assert pnxs_calls == 1 + PrimoClient._ARTICLE_INDEX_RETRIES
+        assert response.article_index_incomplete is True
+        assert [r.record_id for r in response.records] == ["alma1"]
+
+    @pytest.mark.parametrize("sequence", [[-1, 0], [-1, -1, 0]])
+    async def test_zero_after_a_timeout_is_not_trusted(self, monkeypatch, sequence):
+        # When CDI fails outright Primo caches the failed part as 0; seen
+        # live as -1, -1, 0 for topics with thousands of articles.
+        replies = iter(sequence)
+        pnxs_calls = 0
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            nonlocal pnxs_calls
+            if request.url.path.endswith("/facets"):
+                return httpx.Response(200, json=_FACETS_PAYLOAD)
+            pnxs_calls += 1
+            return httpx.Response(200, json=_pc_payload(next(replies), "alma1"))
+
+        response = await self._run(handler, monkeypatch)
+
+        assert pnxs_calls == len(sequence)
+        assert response.article_index_incomplete is True
+
+    @pytest.mark.parametrize("scope", ["catalogue", "books_videos"])
+    async def test_local_only_scopes_never_retry(self, monkeypatch, scope):
+        # Scopes without the article index always report totalResultsPC -1.
+        pnxs_calls = 0
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            nonlocal pnxs_calls
+            if request.url.path.endswith("/facets"):
+                return httpx.Response(200, json=_FACETS_PAYLOAD)
+            pnxs_calls += 1
+            return httpx.Response(200, json=_pc_payload(-1, "alma1"))
+
+        response = await self._run(handler, monkeypatch, scope=scope)
+
+        assert pnxs_calls == 1
+        assert response.article_index_incomplete is False
+
+    async def test_answered_article_index_is_not_retried(self, monkeypatch):
+        pnxs_calls = 0
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            nonlocal pnxs_calls
+            if request.url.path.endswith("/facets"):
+                return httpx.Response(200, json=_FACETS_PAYLOAD)
+            pnxs_calls += 1
+            return httpx.Response(200, json=_pc_payload(0, "alma1"))
+
+        response = await self._run(handler, monkeypatch)
+
+        assert pnxs_calls == 1
+        assert response.article_index_incomplete is False
+
+
 class TestGetRecords:
     def _http_client(self, handler) -> httpx.AsyncClient:
         return httpx.AsyncClient(

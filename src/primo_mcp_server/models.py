@@ -493,6 +493,10 @@ class SearchResponse(BaseModel):
     # Populated from Primo's separate /facets endpoint after the search;
     # empty when facets are unavailable (e.g. local catalogue scope).
     facets: list[Facet] = Field(default_factory=list)
+    # Set by the client when a search that includes the Central Discovery
+    # Index came back before CDI answered (totalResultsPC == -1), even after
+    # retries: the records are catalogue-only and articles are missing.
+    article_index_incomplete: bool = False
 
     @property
     def total_results(self) -> int:

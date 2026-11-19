@@ -25,15 +25,20 @@ the Claude desktop app, or `claude` in a terminal. All three read the same
 plugin settings, so installing it in one makes it available in the others.
 It doesn't reach the desktop app's Chat tab or Cowork.
 
-### 1. Install uv (once)
+### 1. Install Git and uv (once)
 
-[uv](https://docs.astral.sh/uv/) starts the server. The first time, it
-downloads the server's packages and, if your computer has no Python 3.11 to
-3.14, Python itself: up to about 40 MB in all.
+Claude Code downloads the plugin with Git; without it, the install fails
+with "'git' not found". [uv](https://docs.astral.sh/uv/) starts the server.
+The first time, uv downloads the server's packages and, if your computer has
+no Python 3.11 to 3.14, Python itself: up to about 40 MB in all.
 
-- Windows, in PowerShell:
+- Git on Windows, in PowerShell: `winget install --id Git.Git -e`, or the
+  installer from [git-scm.com](https://git-scm.com/downloads/win). On a Mac,
+  run `git --version` in Terminal and accept the offer to install the
+  developer tools.
+- uv on Windows, in PowerShell:
   `powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"`
-- macOS or Linux, in a terminal:
+- uv on macOS or Linux, in a terminal:
   `curl -LsSf https://astral.sh/uv/install.sh | sh`
 
 uv's [installation page](https://docs.astral.sh/uv/getting-started/installation/)
@@ -51,18 +56,24 @@ plugins**. On the **Marketplaces** tab, add `ezengels/cook-primo-mcp-server`.
 On the **Plugins** tab, find **primo-towson**, click **Install**, and choose
 **Install for you**.
 
-**Terminal, or the desktop app's Code tab:** type this in the prompt box,
-then choose **Install for you (user scope)**:
+**Terminal:** run this in PowerShell or a terminal (not inside a Claude
+session):
 
 ```text
-/plugin install primo-towson --marketplace ezengels/cook-primo-mcp-server
+claude plugin install primo-towson --marketplace ezengels/cook-primo-mcp-server
 ```
 
-On Claude Code versions before 2.1.275, add the marketplace first with
-`/plugin marketplace add ezengels/cook-primo-mcp-server`, then run
-`/plugin install primo-towson@cook-library`. If the desktop app doesn't
-accept these commands, install the plugin from VS Code or a terminal instead;
-the desktop app picks it up from the shared settings.
+Inside a `claude` session, `/plugin install primo-towson --marketplace
+ezengels/cook-primo-mcp-server` does the same.
+
+**Claude desktop app:** the Code tab can't run `/plugin` commands (it answers
+that they aren't available in this environment). Use the terminal command
+above instead; the desktop app reads the same settings, so the plugin appears
+in your next Code session. If you don't have the `claude` command, install
+it first and open a new terminal window:
+
+- Windows, in PowerShell: `irm https://claude.ai/install.ps1 | iex`
+- macOS or Linux: `curl -fsSL https://claude.ai/install.sh | bash`
 
 ### 3. Check that it works
 
@@ -89,6 +100,11 @@ Claude Code asks for permission the first time it uses a OneSearch tool;
 choose the option that stops it asking again. Links in the answers open
 OneSearch or the library's link resolver in your browser, where you sign in
 with your NetID as usual.
+
+Searches of everything usually take 1 to 5 seconds. When OneSearch's article
+index is slow, the server repeats the search, which can take up to about 15
+seconds. If the article index still hasn't answered, the results say so and
+contain only catalogue records; ask Claude to run the search again later.
 
 ### Updates and removal
 
@@ -124,6 +140,13 @@ Python environment that uv made for it.
   tests now use a complete SMU fixture; the live checks use Towson-relevant
   queries, and the date-filter check is recalibrated, with the evidence
   recorded in the test.
+- Article-index retry: when OneSearch's article index (CDI) is slow, Primo
+  answers after about five seconds with catalogue records only and reports
+  the article count as `-1`. Searches of everything now repeat the request
+  up to twice. If the article index still hasn't answered, or reports 0 only
+  after timing out, the result says the articles are missing instead of
+  implying none exist. Without this, a slow article index made searches look
+  catalogue-only.
 - Claude Code plugin: `.claude-plugin/plugin.json` starts the server with
   `uv run`, and `.claude-plugin/marketplace.json` makes this repository a
   one-plugin marketplace (see [The plugin](#the-plugin)). `uv.lock` is

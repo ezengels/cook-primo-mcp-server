@@ -72,6 +72,20 @@ async def test_every_configured_scope_returns_results(client, scope):
     assert response.info.total > 0, f"scope {scope} returned nothing"
 
 
+# 2b
+async def test_everything_scope_includes_the_article_index(client):
+    # When CDI is slow, Primo answers with catalogue records only and
+    # totalResultsPC -1; the client repeats the search until CDI answers.
+    # On 2026-11-19 this took two or three requests per fresh query.
+    response = await client.search(
+        "climate change adaptation", scope="everything", resource_type="articles", limit=5
+    )
+
+    assert not response.article_index_incomplete, "CDI did not answer after retries"
+    assert response.info.total_pc > 0
+    assert any(r.record_id.startswith("cdi_") for r in response.records)
+
+
 # 3
 async def test_query_with_semicolon_is_accepted(client):
     response = await client.search("inflation; monetary policy", limit=3)

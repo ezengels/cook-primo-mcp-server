@@ -7,6 +7,7 @@ from urllib.parse import urlencode
 
 from primo_mcp_server.models import PrimoRecord, SearchResponse
 from primo_mcp_server.policy import (
+    ARTICLE_INDEX_INCOMPLETE_NOTE,
     SEARCH_TRANSPARENCY_TEXT,
     ZERO_RESULT_GUIDANCE_LINES,
 )
@@ -405,9 +406,12 @@ def format_search_results(
     # The transparency banner leads every search result, hit or miss, so the
     # obligation is in front of the caller before the results are.
     banner = [SEARCH_TRANSPARENCY_TEXT, ""]
+    incomplete_note = (
+        [ARTICLE_INDEX_INCOMPLETE_NOTE, ""] if response.article_index_incomplete else []
+    )
 
     if not response.records:
-        lines = [*banner, f'No results found for "{query}".', ""]
+        lines = [*banner, f'No results found for "{query}".', "", *incomplete_note]
         lines.extend(query_links)
         lines.extend(
             [
@@ -431,6 +435,7 @@ def format_search_results(
         *banner,
         f'Found {total} results for "{query}" (showing {showing_start}-{showing_end})',
         "",
+        *incomplete_note,
     ]
     lines.extend(query_links)
 

@@ -165,6 +165,31 @@ class TestFormatSearchResults:
         assert "Record ID: alma99908902601" in output
 
 
+class TestArticleIndexIncompleteNote:
+    """A slow article index must not read as "no articles exist"."""
+
+    def test_note_when_article_index_did_not_answer(self, search_results_data):
+        response = SearchResponse.from_api_response(search_results_data)
+        response.article_index_incomplete = True
+        output = format_search_results(response, "climate change")
+        assert "article index did not answer in time" in output
+        assert "do not conclude that no articles exist" in output
+        # It sits in the header, before the first record.
+        assert output.index("article index did not answer") < output.index("[1]")
+
+    def test_note_on_zero_results_too(self, empty_results_data):
+        response = SearchResponse.from_api_response(empty_results_data)
+        response.article_index_incomplete = True
+        output = format_search_results(response, "compound particle")
+        assert "No results found" in output
+        assert "article index did not answer in time" in output
+
+    def test_no_note_by_default(self, search_results_data):
+        response = SearchResponse.from_api_response(search_results_data)
+        output = format_search_results(response, "climate change")
+        assert "article index did not answer" not in output
+
+
 class TestFormatRecordDetail:
     def test_formats_detail(self, search_results_data):
         response = SearchResponse.from_api_response(search_results_data)

@@ -95,6 +95,18 @@ SEARCH_TRANSPARENCY_TEXT = (
     "primo_search calls of this turn."
 )
 
+# Added to a combined-scope result when Primo's article index (CDI) had not
+# answered even after the client's retries (totalResultsPC == -1). Without
+# it, a slow CDI reads as "OneSearch has no articles on this topic" or "this
+# tool only reaches the catalogue".
+ARTICLE_INDEX_INCOMPLETE_NOTE = (
+    "Note: OneSearch's article index did not answer in time, so these "
+    "results come from the library catalogues only and include no articles. "
+    "This is a temporary delay, not a limit of the search: run the same "
+    "search again to include articles, and do not conclude that no articles "
+    "exist."
+)
+
 LIBRARIAN_POLICY_TEXT = (
     "Librarian recommendations are limited to configured profile IDs; do "
     "not invent or substitute names. When a search returns Status: matched, "

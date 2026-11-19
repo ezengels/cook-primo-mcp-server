@@ -353,10 +353,52 @@ class PrimoClient:
         async with gate():
             data = await self._get("/pnxs", params=params)
             response = SearchResponse.from_api_response(data)
+            if canonical_scope == "everything":
+                response = await self._wait_for_article_index(params, response)
             if include_facets and response.records:
                 response.facets = await self._fetch_facets(
                     params, total=response.info.total
                 )
+        return response
+
+    # Primo searches the library catalogues and the Central Discovery Index
+    # (CDI) in parallel and answers after about five seconds whether or not
+    # CDI has finished. When it has not, the response holds catalogue records
+    # only and info.totalResultsPC is -1; the same request repeated shortly
+    # afterwards is answered from Primo's cache with CDI included. Observed
+    # at Towson on 2026-11-19: first requests took 5.1-5.4 s with
+    # totalResultsPC=-1, and CDI arrived on the second or third request
+    # (8 and 121 records). Without the retry, a slow CDI made "everything"
+    # searches look as if OneSearch had no articles at all. When CDI fails
+    # outright, Primo instead caches the failed part as 0: later the same
+    # day, nine fresh topics with thousands of CDI articles each answered
+    # -1, -1, then 0, with or without a guest JWT and the web UI's extra
+    # parameters. So a 0 that follows a -1 is not evidence that no
+    # articles exist. The local-only scopes always report -1, so only the
+    # combined scope retries.
+    _ARTICLE_INDEX_RETRIES = 2
+    _ARTICLE_INDEX_RETRY_DELAY_SECONDS = 1.0
+
+    async def _wait_for_article_index(
+        self, params: dict[str, Any], response: SearchResponse
+    ) -> SearchResponse:
+        """Repeat a combined-scope search until CDI has answered.
+
+        Called with the search gate held, so a later /facets call reads the
+        final search. Marks the response article_index_incomplete when CDI
+        still has not answered after _ARTICLE_INDEX_RETRIES repeats, or when
+        it reports 0 only after timing out, so the caller can say that
+        articles are missing instead of implying that none exist.
+        """
+        timed_out = response.info.total_pc == -1
+        retries = 0
+        while response.info.total_pc == -1 and retries < self._ARTICLE_INDEX_RETRIES:
+            retries += 1
+            await asyncio.sleep(self._ARTICLE_INDEX_RETRY_DELAY_SECONDS)
+            data = await self._get("/pnxs", params=params)
+            response = SearchResponse.from_api_response(data)
+        final_pc = response.info.total_pc
+        response.article_index_incomplete = final_pc == -1 or (timed_out and final_pc == 0)
         return response
 
     # Primo computes facets for a large result set in the background, so a

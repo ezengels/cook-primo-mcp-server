@@ -15,6 +15,12 @@ This is the canonical agent guidance file for this fork.
 - **Transport:** stdio
 - **HTTP client:** httpx (async, connection-pooled)
 - **Config:** pydantic-settings with PRIMO_ env prefix
+- **Primo timing quirks the client absorbs:** facets for a large search can
+  lag the search by a second (retried once), and an "everything" search can
+  return before the article index (CDI) has answered, with
+  `totalResultsPC` -1 (repeated up to twice, then flagged as
+  `article_index_incomplete` so the output says articles are missing). The
+  local-only scopes always report -1, so only the combined scope retries.
 
 ## Key Files
 
