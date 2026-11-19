@@ -26,9 +26,9 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/aarontaycheehsien/primo-mcp-server"
-Repository = "https://github.com/aarontaycheehsien/primo-mcp-server"
-Issues = "https://github.com/aarontaycheehsien/primo-mcp-server/issues"
+Homepage = "https://github.com/ezengels/cook-primo-mcp-server"
+Repository = "https://github.com/ezengels/cook-primo-mcp-server"
+Upstream = "https://github.com/aarontaycheehsien/primo-mcp-server"
 Original = "https://github.com/geheharidas/primo-mcp-server"
 
 [project.optional-dependencies]

@@ -3,9 +3,9 @@
 Towson-focused MCP server for searching Towson University's Albert S. Cook
 Library (OneSearch, shared through the USMAI consortium): catalogue, articles,
 databases, books, videos, and records through the Ex Libris Primo discovery
-API. Adapted from Aaron Tay's SMU fork; `main` tracks upstream unchanged and
-the `towson` branch carries the Towson changes (see README, "Changes from
-upstream").
+API. Adapted from Aaron Tay's SMU fork (see README, "Changes from upstream")
+and packaged as a Claude Code plugin (`.claude-plugin/`; see README, "The
+plugin").
 
 This is the canonical agent guidance file for this fork.
 
@@ -43,6 +43,10 @@ uv sync --extra dev
 uv run pytest tests/ -v
 ```
 
+After any dependency change, run `uv lock` and commit `uv.lock`: the plugin
+starts the server with `uv run --frozen`, so testers get exactly what the
+lockfile pins.
+
 `tests/test_live_primo.py` checks the real Primo API, Towson OneSearch by default (one assumption the
 code relies on per test). It is deselected by default and never runs in CI;
 run it on demand, and treat a failure as a finding about Primo or about the
@@ -56,8 +60,8 @@ uv run pytest -m live -v
 
 Defaults are Towson University (Cook Library OneSearch, view
 01USMAI_TU:01USMAI_TU). Other institutions can override these values with
-environment variables, but documentation and agent behaviour on the `towson`
-branch should remain Towson-first.
+environment variables, but documentation and agent behaviour in this
+repository should remain Towson-first.
 
 - PRIMO_BASE_URL -- Primo API base URL
 - PRIMO_DISCOVERY_BASE_URL -- Primo web app base URL for search and record links

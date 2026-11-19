@@ -1,0 +1,14 @@
+{
+  "name": "cook-library",
+  "description": "Claude Code plugin for searching Towson University's OneSearch (pilot).",
+  "owner": {
+    "name": "ezengels"
+  },
+  "plugins": [
+    {
+      "name": "primo-towson",
+      "source": "./",
+      "description": "Search Towson's OneSearch from Claude Code: books, articles, databases, access links, citations and exports."
+    }
+  ]
+}

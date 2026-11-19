@@ -6,17 +6,96 @@ Maryland libraries). It lets Claude search Towson's catalogue, the other USMAI
 libraries' catalogues, and the Central Discovery Index of articles, and
 returns record details, access links, citations, and exports.
 
-This is a private copy of
+This repository is a fork of
 [Aaron Tay's SMU fork](https://github.com/aarontaycheehsien/primo-mcp-server)
 of [geheharidas/primo-mcp-server](https://github.com/geheharidas/primo-mcp-server)
-(MIT licence), reconfigured for Towson. The `main` branch tracks Tay's code
-unchanged; the `towson` branch carries the changes listed under
+(MIT licence), reconfigured for Towson and packaged as a Claude Code plugin
+for a small group of pilot testers. The changes are listed under
 [Changes from upstream](#changes-from-upstream).
 
 The server uses only OneSearch's public search interface, the same requests
 the OneSearch web page makes for a signed-out visitor. It needs no Towson
 login, no Primo API key, and no Ex Libris developer account, and it sees only
 what a signed-out visitor sees.
+
+## Install the plugin
+
+The plugin runs in Claude Code: the VS Code extension, the **Code** tab of
+the Claude desktop app, or `claude` in a terminal. All three read the same
+plugin settings, so installing it in one makes it available in the others.
+It doesn't reach the desktop app's Chat tab or Cowork.
+
+### 1. Install uv (once)
+
+[uv](https://docs.astral.sh/uv/) starts the server. The first time, it
+downloads the server's packages and, if your computer has no Python 3.11 to
+3.14, Python itself: up to about 40 MB in all.
+
+- Windows, in PowerShell:
+  `powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"`
+- macOS or Linux, in a terminal:
+  `curl -LsSf https://astral.sh/uv/install.sh | sh`
+
+uv's [installation page](https://docs.astral.sh/uv/getting-started/installation/)
+lists other ways to install it.
+
+Then quit VS Code or the Claude desktop app completely, every window, and
+open it again, so that it can find uv. To check the install, run
+`uv --version` in a new terminal.
+
+### 2. Install the plugin
+
+**VS Code:** in the Claude Code panel, type `/plugins` to open **Manage
+plugins**. On the **Marketplaces** tab, add `ezengels/cook-primo-mcp-server`.
+On the **Plugins** tab, find **primo-towson**, click **Install**, and choose
+**Install for you**.
+
+**Terminal, or the desktop app's Code tab:** type this in the prompt box,
+then choose **Install for you (user scope)**:
+
+```text
+/plugin install primo-towson --marketplace ezengels/cook-primo-mcp-server
+```
+
+On Claude Code versions before 2.1.275, add the marketplace first with
+`/plugin marketplace add ezengels/cook-primo-mcp-server`, then run
+`/plugin install primo-towson@cook-library`. If the desktop app doesn't
+accept these commands, install the plugin from VS Code or a terminal instead;
+the desktop app picks it up from the shared settings.
+
+### 3. Check that it works
+
+Start a new conversation and type `/mcp`. **plugin:primo-towson:primo**
+should show as connected. The first start takes 5 to 15 seconds while uv sets
+up; later starts take about a second. If it shows as failed, check that
+`uv --version` works in a new terminal, quit and reopen the app, and
+reconnect the server from `/mcp`.
+
+Then ask, for example:
+
+> Search Towson's OneSearch for Saotome et al. 2018, "Structure of the
+> mechanically activated ion channel Piezo1", and tell me whether Towson has
+> full-text access.
+
+> Search Towson's catalogue for books by Frederick Douglass.
+
+Claude Code asks for permission the first time it uses a OneSearch tool;
+choose the option that stops it asking again. Links in the answers open
+OneSearch or the library's link resolver in your browser, where you sign in
+with your NetID as usual.
+
+### Updates and removal
+
+Plugins from this marketplace don't update automatically unless you turn
+that on. In a terminal session, run `/plugin`, open the **Marketplaces** tab,
+select **cook-library**, and choose **Update marketplace**; the same menu
+turns on auto-update. From a shell,
+`claude plugin update primo-towson@cook-library` updates the plugin. Then
+run `/reload-plugins` or start a new conversation.
+
+To remove the plugin, uninstall it from the plugin manager or run
+`/plugin uninstall primo-towson@cook-library`. Uninstalling also deletes the
+Python environment that uv made for it.
 
 ## Changes from upstream
 
@@ -39,6 +118,10 @@ what a signed-out visitor sees.
   tests now use a complete SMU fixture; the live checks use Towson-relevant
   queries, and the date-filter check is recalibrated, with the evidence
   recorded in the test.
+- Claude Code plugin: `.claude-plugin/plugin.json` starts the server with
+  `uv run`, and `.claude-plugin/marketplace.json` makes this repository a
+  one-plugin marketplace (see [The plugin](#the-plugin)). `uv.lock` is
+  refreshed for the `mcp` cap.
 
 ## Features
 
@@ -55,63 +138,16 @@ what a signed-out visitor sees.
 - Compound boolean queries: multi-clause AND/OR/NOT with contains/exact/begins_with operators for known-item lookups (title AND creator), exact-title checks, and OR expansion
 - Show physical shelf locations (library, location, call number, availability status) and direct full-text access links (proxied resource links, Alma link-resolver openurl) in search results and record details
 
-## Quick Start for Towson
-
-### 1. Requirements
-
-- Python 3.11 or later
-- Claude Code (CLI, VS Code extension, or desktop app)
-
-### 2. Install the server
-
-```bash
-git clone https://github.com/aligurbu/primo-mcp-server-towson.git
-cd primo-mcp-server-towson
-python -m venv .venv
-.venv/Scripts/python -m pip install -e .     # Windows
-# .venv/bin/python -m pip install -e .       # macOS / Linux
-```
-
-Towson's OneSearch settings are the defaults, so no `.env` file is needed.
-
-### 3. Add it to Claude Code
-
-Point Claude Code at the virtual environment's Python, so the server runs
-with its own dependencies from any project (replace the path with your
-clone's):
-
-```bash
-claude mcp add primo-towson --scope user -- "C:/path/to/primo-mcp-server-towson/.venv/Scripts/python.exe" -m primo_mcp_server
-```
-
-`--scope user` makes the server available in every project; `--scope project`
-writes it to one project's `.mcp.json` instead.
-
-### 4. Check that it is connected
-
-```bash
-claude mcp list
-```
-
-`primo-towson` should show as connected; `/mcp` inside Claude Code shows the
-same. The tools appear as `mcp__primo-towson__primo_search`,
-`mcp__primo-towson__primo_get_record`, and so on. Start a new conversation
-(or reload the VS Code window) after adding the server.
-
-### 5. Try it
-
-> Search Towson's OneSearch for Saotome et al. 2018, "Structure of the
-> mechanically activated ion channel Piezo1", and tell me whether Towson has
-> full-text access.
-
-> Search Towson's catalogue for books by Frederick Douglass.
-
 ## Development
 
 ```bash
-pip install -e ".[dev]"
-pytest tests/ -v
+git clone https://github.com/ezengels/cook-primo-mcp-server.git
+cd cook-primo-mcp-server
+uv sync --extra dev
+uv run pytest
 ```
+
+Towson's OneSearch settings are the defaults, so no `.env` file is needed.
 
 ### Live checks
 
@@ -124,11 +160,51 @@ citation and export on real records, and autocomplete. They are skipped by
 default and never run in CI (about 30 requests per run):
 
 ```bash
-pytest -m live -v
+uv run pytest -m live -v
 ```
 
 A failure means Primo behaves differently from what the code assumes, or
 that Primo has changed; investigate it rather than loosening the test.
+
+### The plugin
+
+`.claude-plugin/plugin.json` declares one MCP server, `primo`, which Claude
+Code starts with
+
+```text
+uv run --directory ${CLAUDE_PLUGIN_ROOT} --frozen primo-mcp-server
+```
+
+and two environment variables:
+
+- `UV_PROJECT_ENVIRONMENT=${CLAUDE_PLUGIN_DATA}/venv` keeps the virtual
+  environment in the plugin's data directory, which survives plugin updates.
+- `UV_PYTHON=>=3.11,<3.15` keeps uv off Python 3.15, for which the locked
+  `pydantic-core` has no wheels yet. Raise the bound once `uv.lock` pins
+  versions with 3.15 wheels.
+
+`--frozen` installs exactly what `uv.lock` pins, so run `uv lock` after any
+dependency change. `--directory` starts the server in the plugin's own
+directory, away from the user's project. The tools appear in Claude Code as
+`mcp__plugin_primo-towson_primo__<tool>`; the longest name is 61 characters,
+so keep new tool names short enough to stay under 64.
+
+The manifest has no `version`, so every commit to `main` is a new version,
+and testers get it the next time they update the marketplace. To try a change
+before pushing:
+
+```bash
+claude plugin validate .
+claude --plugin-dir .   # this checkout replaces the installed plugin for one session
+```
+
+### Without the plugin
+
+To register a checkout as a plain MCP server instead:
+
+```bash
+claude mcp add primo-towson --scope user -- uv run --directory /path/to/cook-primo-mcp-server primo-mcp-server
+```
 
 ## Tools
 
@@ -247,9 +323,12 @@ The tab and scope names come from the view's public configuration,
 the `Everything` / `DN_and_CI` pair is also what the search box on the
 library home page uses.
 
-A `.env` file is read from the directory the server is started from, which
-under Claude Code is not this repository. To override a value for Claude
-Code, pass it when adding the server, e.g.
+A `.env` file is read from the directory the server starts in. The plugin
+starts it in its own install directory, so a `.env` file in your project has
+no effect. To change a value for every tester, add the `PRIMO_` variable to
+the server's `env` in `.claude-plugin/plugin.json`. To change it only for
+yourself, register the server without the plugin (see
+[Without the plugin](#without-the-plugin)) and pass the value, e.g.
 `claude mcp add primo-towson --scope user -e PRIMO_DEFAULT_RESULTS=20 -- ...`.
 
 ## Configuration Reference

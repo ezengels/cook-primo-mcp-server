@@ -1,0 +1,20 @@
+{
+  "name": "primo-towson",
+  "description": "Search Towson University's OneSearch (Albert S. Cook Library, Ex Libris Primo VE) from Claude Code: books, articles, databases, access links, citations and exports. Uses OneSearch's public guest search only; no login or API key.",
+  "author": {
+    "name": "Ali Gurbuz"
+  },
+  "repository": "https://github.com/ezengels/cook-primo-mcp-server",
+  "license": "MIT",
+  "keywords": ["library", "primo", "onesearch", "towson", "citations"],
+  "mcpServers": {
+    "primo": {
+      "command": "uv",
+      "args": ["run", "--directory", "${CLAUDE_PLUGIN_ROOT}", "--frozen", "primo-mcp-server"],
+      "env": {
+        "UV_PROJECT_ENVIRONMENT": "${CLAUDE_PLUGIN_DATA}/venv",
+        "UV_PYTHON": ">=3.11,<3.15"
+      }
+    }
+  }
+}
