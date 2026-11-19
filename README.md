@@ -39,9 +39,10 @@ downloads the server's packages and, if your computer has no Python 3.11 to
 uv's [installation page](https://docs.astral.sh/uv/getting-started/installation/)
 lists other ways to install it.
 
-Then quit VS Code or the Claude desktop app completely, every window, and
-open it again, so that it can find uv. To check the install, run
-`uv --version` in a new terminal.
+Then quit VS Code or the Claude desktop app completely and open it again, so
+that it can find uv. In VS Code, use **File > Exit**: closing or reloading one
+window isn't enough, because every window keeps the environment VS Code
+started with. To check the install, run `uv --version` in a new terminal.
 
 ### 2. Install the plugin
 
@@ -65,11 +66,16 @@ the desktop app picks it up from the shared settings.
 
 ### 3. Check that it works
 
-Start a new conversation and type `/mcp`. **plugin:primo-towson:primo**
-should show as connected. The first start takes 5 to 15 seconds while uv sets
-up; later starts take about a second. If it shows as failed, check that
-`uv --version` works in a new terminal, quit and reopen the app, and
-reconnect the server from `/mcp`.
+Start a new conversation. In VS Code or a terminal, type `/mcp`:
+**plugin:primo-towson:primo** should show as connected. In the desktop app,
+the plugin is listed under **Customize** (or **Plugins**) in the sidebar, or
+just ask a OneSearch question. The first start takes 5 to 15 seconds while uv
+sets up; later starts take about a second.
+
+If the server shows **Failed** with "Connection closed", Claude Code can't
+find uv. Check that `uv --version` works in a new terminal, quit the app
+completely (in VS Code, **File > Exit**), reopen it, and click **Reconnect**.
+If it still fails, sign out of your computer and back in.
 
 Then ask, for example:
 
