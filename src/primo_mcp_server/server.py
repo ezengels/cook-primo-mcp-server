@@ -428,7 +428,7 @@ async def primo_search(
     facet_filters: dict[str, str] | None = None,
     facet_exclusions: dict[str, str] | None = None,
 ) -> CallToolResult:
-    """Search Singapore Management University Library via Primo.
+    """Search Towson University's Cook Library (OneSearch) via Primo.
 
     The caller-facing scope and zero-result retry policy plus the full
     argument reference live in policy.PRIMO_SEARCH_DESCRIPTION, which is
@@ -621,7 +621,7 @@ async def primo_recommend_librarians(
     include_unavailable: bool | None = None,
     limit: int = 2,
 ) -> str:
-    """Recommend configured SMU librarian help for a Primo query or records.
+    """Recommend configured Towson librarian help for a Primo query or records.
 
     Recommendations are validated against the configured JSON profile
     directory. The server returns only configured librarian names; callers
@@ -767,7 +767,7 @@ async def primo_submit_librarian_choice(
 @mcp.tool()
 @_tool_error_boundary("listing librarians")
 async def primo_list_librarians(ctx: Context) -> str:
-    """List every configured SMU librarian profile.
+    """List every configured Towson librarian profile.
 
     Use this when librarian recommendation returns no match but the user
     still wants a contact, or when the user asks who the librarians are and
@@ -807,9 +807,9 @@ async def primo_rag_retrieve(
 ) -> str:
     """Retrieve top Primo records and pin them for guarded RAG answering.
 
-    Step 1 of the citation-guardrail pipeline. Searches SMU Primo, pins the
-    top records (default 5) to a session labelled [1]-[n], and returns the
-    evidence pack plus drafting rules. Draft an answer citing ONLY numeric
+    Step 1 of the citation-guardrail pipeline. Searches Towson OneSearch,
+    pins the top records (default 5) to a session labelled [1]-[n], and
+    returns the evidence pack plus drafting rules. Draft an answer citing ONLY numeric
     [n] tags, then call primo_rag_validate with the session_id and the draft
     -- validation and reference building are done by code, not by the model.
 

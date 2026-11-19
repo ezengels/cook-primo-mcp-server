@@ -22,11 +22,19 @@ from primo_mcp_server.models import (
 
 
 def _smu_config(**overrides) -> PrimoConfig:
+    # A complete SMU fixture: the package defaults are now Towson's, so the
+    # tab and scope names are pinned here rather than inherited.
     values = {
         "base_url": "https://search.library.smu.edu.sg/primaws/rest/pub",
         "discovery_base_url": None,
         "vid": "65SMU_INST:SMU_NUI",
         "language": "en",
+        "tab_everything": "Everything",
+        "tab_catalogue": "Catalogue",
+        "tab_books_videos": "booksandvideos",
+        "scope_combined": "MyInst_and_CI",
+        "scope_local": "MyInstitution",
+        "scope_books_videos": "BooksVideos",
     }
     values.update(overrides)
     return PrimoConfig(**values)

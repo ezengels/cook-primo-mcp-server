@@ -1,8 +1,11 @@
 # Primo MCP Server
 
-SMU-focused MCP server for searching Singapore Management University Library
-Primo catalogue, articles, databases, books, videos, and records through the Ex
-Libris Primo discovery API.
+Towson-focused MCP server for searching Towson University's Albert S. Cook
+Library (OneSearch, shared through the USMAI consortium): catalogue, articles,
+databases, books, videos, and records through the Ex Libris Primo discovery
+API. Adapted from Aaron Tay's SMU fork; `main` tracks upstream unchanged and
+the `towson` branch carries the Towson changes (see README, "Changes from
+upstream").
 
 This is the canonical agent guidance file for this fork.
 
@@ -40,7 +43,7 @@ uv sync --extra dev
 uv run pytest tests/ -v
 ```
 
-`tests/test_live_primo.py` checks the real SMU Primo API (one assumption the
+`tests/test_live_primo.py` checks the real Primo API, Towson OneSearch by default (one assumption the
 code relies on per test). It is deselected by default and never runs in CI;
 run it on demand, and treat a failure as a finding about Primo or about the
 code's assumptions, not as a test to loosen:
@@ -51,17 +54,18 @@ uv run pytest -m live -v
 
 ## Configuration
 
-Defaults are SMU (Singapore Management University). Other institutions can
-override these values with environment variables, but public documentation and
-agent behaviour should remain SMU-first for this fork.
+Defaults are Towson University (Cook Library OneSearch, view
+01USMAI_TU:01USMAI_TU). Other institutions can override these values with
+environment variables, but documentation and agent behaviour on the `towson`
+branch should remain Towson-first.
 
 - PRIMO_BASE_URL -- Primo API base URL
 - PRIMO_DISCOVERY_BASE_URL -- Primo web app base URL for search and record links
 - PRIMO_VID -- View ID for the institution
 - PRIMO_INSTITUTION_NAME -- Display name
-- PRIMO_TAB_CATALOGUE / PRIMO_SCOPE_LOCAL -- SMU catalogue search
-- PRIMO_TAB_EVERYTHING / PRIMO_SCOPE_COMBINED -- SMU catalogue plus CDI search
-- PRIMO_TAB_BOOKS_VIDEOS / PRIMO_SCOPE_BOOKS_VIDEOS -- SMU books/videos search
+- PRIMO_TAB_CATALOGUE / PRIMO_SCOPE_LOCAL -- Towson catalogue only (TULibraryCatalog / MyInstitution)
+- PRIMO_TAB_EVERYTHING / PRIMO_SCOPE_COMBINED -- Towson + USMAI catalogues plus CDI (Everything / DN_and_CI)
+- PRIMO_TAB_BOOKS_VIDEOS / PRIMO_SCOPE_BOOKS_VIDEOS -- USMAI network catalogue (New_Network_Catalog / New_Discovery_Network); Towson has no books/videos tab
 
 Librarian recommendations (see `config.py` for the full list, including
 score thresholds, margins, timeouts, and the query token gate):

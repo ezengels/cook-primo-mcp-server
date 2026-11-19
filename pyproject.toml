@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "primo-mcp-server"
 version = "0.1.0"
-description = "SMU-focused MCP server for searching Singapore Management University Library Primo catalogue, articles, databases, and records."
+description = "MCP server for searching Towson University's Albert S. Cook Library (OneSearch, Ex Libris Primo VE): catalogue, articles, databases, and records. Adapted from Aaron Tay's SMU fork."
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.11"
@@ -16,7 +16,9 @@ maintainers = [
     { name = "Aaron Tay Chee Hsien" },
 ]
 dependencies = [
-    "mcp>=1.26.0",
+    # mcp 2.x renamed McpError to MCPError, which librarian_llm.py imports;
+    # uv.lock pins 1.28.1, but a plain pip install would pull 2.x.
+    "mcp>=1.26.0,<2",
     "httpx>=0.28.0",
     "pydantic>=2.12.0",
     "pydantic-settings>=2.13.0",
@@ -48,5 +50,5 @@ packages = ["src/primo_mcp_server"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
-markers = ["live: calls the real SMU Primo API (run with: pytest -m live)"]
+markers = ["live: calls the real Primo API, Towson OneSearch by default (run with: pytest -m live)"]
 addopts = "-m 'not live'"

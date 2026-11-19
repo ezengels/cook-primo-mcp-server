@@ -259,7 +259,8 @@ class PrimoClient:
             query: Search terms.
             field: Search field (any, title, creator, sub, isbn, oclcnum).
             scope: "everything" for local + PCI, "catalogue" for local only,
-                "books_videos" for the institution's books/videos scope.
+                "books_videos" for the third configured tab/scope (at
+                Towson, the USMAI network catalogue).
             sort_by: rank, date, or title.
             limit: Number of results (capped at max_results_per_request).
             offset: Pagination offset.

@@ -24,6 +24,10 @@ SCOPE_POLICY_LINES = [
     "subscribes to, or provides access to a title, use Primo as the "
     "evidence source. Do not rely on websites, LibGuides, or general web "
     "pages unless the user explicitly asks for web confirmation.",
+    'scope="everything" also searches the other USMAI libraries\' '
+    "catalogues. A book or video held only at another USMAI library is not "
+    "a Towson holding (Towson users can request it); to confirm that Towson "
+    'itself holds a catalogue item, search scope="catalogue".',
 ]
 
 ZERO_RESULT_POLICY_LINES = [
@@ -113,9 +117,10 @@ SEARCH_POLICY_TEXT = (
 )
 
 SERVER_INSTRUCTIONS = (
-    "Search Singapore Management University Library catalogue records, "
-    "articles, databases, books, videos, and holdings via the Ex Libris "
-    "Primo discovery API.\n\n"
+    "Search Towson University's Albert S. Cook Library (OneSearch) catalogue "
+    "records, articles, databases, books, videos, and holdings via the Ex "
+    "Libris Primo discovery API. OneSearch is shared with the USMAI "
+    "consortium of Maryland libraries.\n\n"
     + SEARCH_POLICY_TEXT
     + "\n\nUse primo_search for queries (a single query string, or compound "
     "boolean clauses for known-item and precision searches), "
@@ -127,14 +132,14 @@ SERVER_INSTRUCTIONS = (
 )
 
 PRIMO_SEARCH_DESCRIPTION = (
-    "Search Singapore Management University Library via Primo.\n\n"
+    "Search Towson University's Albert S. Cook Library (OneSearch) via Primo.\n\n"
     + SEARCH_POLICY_TEXT
     + """
 
 Args:
     query: Search terms (e.g. "machine learning entrepreneurship").
     field: Search field -- "any" (default), "title", "creator", "sub" (subject), "isbn", "issn", "oclcnum".
-    scope: "everything" for local catalogue + subscribed databases, "catalogue" for local only, "books_videos" for the books/videos scope.
+    scope: "everything" (default) for OneSearch's default search: Towson's catalogue, the other USMAI libraries' catalogues, and article-index (CDI) records Towson can access. "catalogue" for Towson's own holdings only (books, ebooks, journals, databases, videos; no article index). "books_videos" for the USMAI network catalogue: catalogue records from every USMAI library, no article index.
     sort_by: "rank" (relevance, default), "date" (newest first), "title" (alphabetical).
     limit: Number of results to return (1-50, default 10).
     offset: Pagination offset (default 0). Use to get the next page of results.

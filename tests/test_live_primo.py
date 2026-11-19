@@ -1,4 +1,4 @@
-"""Live checks against the real SMU Primo API.
+"""Live checks against the real Primo API (Towson OneSearch by default).
 
 Every other test mocks Primo, so these are the only ones that can catch a
 wrong assumption about the service itself, or a change on the Primo side.
@@ -7,9 +7,11 @@ default (pyproject addopts) and never run in CI:
 
     uv run pytest -m live -v
 
-They use the SMU defaults regardless of the local .env (PRIMO_* environment
-variables still override), run sequentially, send about 30 requests, and
-assert properties rather than exact counts, since holdings change daily.
+They use the Towson defaults regardless of the local .env (PRIMO_*
+environment variables still override), run sequentially, send about 30
+requests, and assert properties rather than exact counts, since holdings
+change daily. The queries were adapted from the SMU originals: "Maryland"
+replaces "Singapore", and "Douglass, Frederick" replaces "Lee, Kuan Yew".
 """
 
 from __future__ import annotations
@@ -52,12 +54,12 @@ def _rtype_counts(response) -> dict[str, int]:
 
 # 1
 async def test_search_returns_parseable_records(client, config):
-    response = await client.search("Singapore", scope="everything", limit=5)
+    response = await client.search("Maryland", scope="everything", limit=5)
 
     assert response.info.total > 0
     assert response.records
     assert all(r.record_id and r.title for r in response.records)
-    text = format_search_results(response, "Singapore", config=config)
+    text = format_search_results(response, "Maryland", config=config)
     assert "Queries attempted:" in text
     assert "Unexpected error" not in text
 
@@ -65,7 +67,7 @@ async def test_search_returns_parseable_records(client, config):
 # 2
 @pytest.mark.parametrize("scope", ["catalogue", "everything", "books_videos"])
 async def test_every_configured_scope_returns_results(client, scope):
-    response = await client.search("Singapore", scope=scope, limit=3)
+    response = await client.search("Maryland", scope=scope, limit=3)
 
     assert response.info.total > 0, f"scope {scope} returned nothing"
 
@@ -80,7 +82,7 @@ async def test_query_with_semicolon_is_accepted(client):
 # 4
 async def test_creator_search_with_comma_still_matches(client):
     response = await client.search(
-        "Lee, Kuan Yew", field="creator", scope="catalogue", limit=3
+        "Douglass, Frederick", field="creator", scope="catalogue", limit=3
     )
 
     assert response.info.total > 0
@@ -96,17 +98,22 @@ async def test_date_range_filter_bounds_record_years(client):
     # Primo's date filter is loose: a CDI ebook whose every date field says
     # 2017 was returned for [2020 TO 2020]. The request is right, so require
     # most records in range, not all (the tool description warns callers).
+    # Towson recalibration (2026-11-19): the SMU threshold was 0.8, but at
+    # Towson 7/10 (2020-2021) and 6/10 (2020) were in range -- the strays
+    # are CDI ebooks whose own dates are 2018, 2019, 1990 -- while the same
+    # search without the filter had 0/10 in range. A majority still proves
+    # the filter is applied.
     for response, allowed in ((ranged, {"2020", "2021"}), (single, {"2020"})):
         years = [r.year for r in response.records if r.year]
         assert years
         in_range = sum(year in allowed for year in years)
-        assert in_range / len(years) >= 0.8, f"{allowed}: {years}"
+        assert in_range / len(years) >= 0.5, f"{allowed}: {years}"
 
 
 # 6
 async def test_books_filter_returns_books(client):
     response = await client.search(
-        "Singapore", scope="catalogue", resource_type="books", limit=10
+        "Maryland", scope="catalogue", resource_type="books", limit=10
     )
 
     assert response.records
@@ -133,7 +140,7 @@ async def test_peer_reviewed_filter_records_parse_as_peer_reviewed(client):
 # 8
 async def test_everything_search_serves_consistent_facets(client):
     response = await client.search(
-        "Singapore", scope="everything", limit=3, include_facets=True
+        "Maryland", scope="everything", limit=3, include_facets=True
     )
 
     counts = _rtype_counts(response)
@@ -166,7 +173,7 @@ async def test_guest_token_is_issued_with_a_readable_expiry(client):
 
 # 11
 async def test_alma_record_resolves_through_the_direct_endpoint(client, config):
-    found = await client.search("Singapore", scope="catalogue", limit=5)
+    found = await client.search("Maryland", scope="catalogue", limit=5)
     alma = next(r for r in found.records if r.record_id.startswith("alma"))
 
     search_paths: list[str] = []
@@ -187,7 +194,8 @@ async def test_alma_record_resolves_through_the_direct_endpoint(client, config):
 # 12
 async def test_cdi_record_resolves_by_id(client):
     # Local records outrank CDI for many topics (none in the top 50 for
-    # "corporate governance"), so use a topic SMU holds little on.
+    # "corporate governance" at SMU), so use a topic the catalogues hold little
+    # on. At Towson this query still had CDI records in the top 20 (2026-11-19).
     found = await client.search("coral reef ecology", scope="everything", limit=20)
     cdi = next((r for r in found.records if r.record_id.startswith("cdi_")), None)
     assert cdi is not None, "no CDI record in the top 20; pick another query"

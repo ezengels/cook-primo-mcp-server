@@ -157,7 +157,7 @@ def find_prose_citations(draft: str) -> list[str]:
 
 _HONEST_LIMIT_NOTE = (
     "Guardrail note: code verified that every [n] citation points to a record "
-    "retrieved from SMU Primo in this session, and the reference list was built "
+    "retrieved from Towson OneSearch in this session, and the reference list was built "
     "deterministically from those records' metadata. It does NOT verify that "
     "each source supports the claim it is attached to; uncited claims and "
     "prose citations bypass this check, and errors in Primo metadata are "
@@ -206,7 +206,7 @@ def format_retrieve_response(session: RagSession) -> str:
     return (
         f"RAG session created: {session.session_id}\n"
         f"Query: {session.query}\n"
-        f"Retrieved {n} source record{'s' if n != 1 else ''} from SMU Primo "
+        f"Retrieved {n} source record{'s' if n != 1 else ''} from Towson OneSearch "
         f"(labelled [1]-[{n}]).\n\n"
         f"{format_sources_for_drafting(session)}\n\n"
         "DRAFTING RULES (for the calling model):\n"

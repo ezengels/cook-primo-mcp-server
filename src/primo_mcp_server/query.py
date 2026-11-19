@@ -20,6 +20,12 @@ _SCOPE_ALIASES = {
     "combined": "everything",
     "myinst_and_ci": "everything",
     "pci": "everything",
+    "dn_and_ci": "everything",
+    # Towson: the books_videos slot holds the USMAI network catalogue.
+    "network": "books_videos",
+    "usmai": "books_videos",
+    "usmai_network": "books_videos",
+    "new_discovery_network": "books_videos",
     "books_videos": "books_videos",
     "booksvideos": "books_videos",
     "booksandvideos": "books_videos",

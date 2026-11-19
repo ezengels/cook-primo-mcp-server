@@ -1,4 +1,7 @@
-"""SMU Primo MCP Server -- search Singapore Management University Library."""
+"""Primo MCP Server -- search Towson University's Albert S. Cook Library (OneSearch).
+
+Adapted from Aaron Tay's SMU fork of geheharidas/primo-mcp-server (MIT).
+"""
 
 __version__ = "0.1.0"
 

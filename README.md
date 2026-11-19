@@ -1,11 +1,44 @@
-# Primo MCP Server
+# Primo MCP Server: Towson University (Cook Library OneSearch)
 
-MCP server for Singapore Management University library discovery via Ex
-Libris Primo. It searches SMU catalogue records, subscribed databases,
-articles, books, videos, and database records through the Primo API.
+MCP server for OneSearch, the discovery system of Towson University's Albert
+S. Cook Library (Ex Libris Primo VE, shared through the USMAI consortium of
+Maryland libraries). It lets Claude search Towson's catalogue, the other USMAI
+libraries' catalogues, and the Central Discovery Index of articles, and
+returns record details, access links, citations, and exports.
 
-This fork includes hardened scope handling, direct Primo record/search links,
-and Unicode-safe handling for Chinese records.
+This is a private copy of
+[Aaron Tay's SMU fork](https://github.com/aarontaycheehsien/primo-mcp-server)
+of [geheharidas/primo-mcp-server](https://github.com/geheharidas/primo-mcp-server)
+(MIT licence), reconfigured for Towson. The `main` branch tracks Tay's code
+unchanged; the `towson` branch carries the changes listed under
+[Changes from upstream](#changes-from-upstream).
+
+The server uses only OneSearch's public search interface, the same requests
+the OneSearch web page makes for a signed-out visitor. It needs no Towson
+login, no Primo API key, and no Ex Libris developer account, and it sees only
+what a signed-out visitor sees.
+
+## Changes from upstream
+
+- Towson OneSearch defaults in `config.py`: the Primo VE host, view ID,
+  institution name, and the tab and scope behind each of the three canonical
+  scopes (see [Scope Behaviour](#scope-behaviour)).
+- Tool descriptions and server instructions name Towson's Cook Library
+  instead of SMU, describe Towson's scopes, and tell Claude that a title held
+  only by another USMAI library is not a Towson holding.
+- New scope aliases: `network`, `usmai`, `usmai_network` and
+  `new_discovery_network` for the USMAI network catalogue, and `dn_and_ci`.
+- `mcp` is capped below 2.0. mcp 2.x renamed `McpError` to `MCPError`, which
+  breaks the import in `librarian_llm.py`; `uv.lock` pins 1.28.1, but a plain
+  `pip install -e .` would pull 2.x.
+- Facet retry: right after a search of millions of results, Primo can return
+  an empty facet list while it computes facets in the background (at Towson,
+  "music" had 0 facets at +0 s and 14 at +1 s). The client now retries once,
+  after 1 s, for searches of 100,000 results or more.
+- Tests: a check that the defaults build Towson OneSearch links; the SMU link
+  tests now use a complete SMU fixture; the live checks use Towson-relevant
+  queries, and the date-filter check is recalibrated, with the evidence
+  recorded in the test.
 
 ## Features
 
@@ -16,40 +49,43 @@ and Unicode-safe handling for Chinese records.
 - Generate citations in APA 7th, Harvard, Chicago, IEEE, and Vancouver styles
 - Export records to BibTeX, RIS, or UTF-8-sig CSV
 - Reject invalid search scopes instead of silently falling back to Everything
-- Recommend configured SMU librarians from search queries and Primo metadata
+- Recommend configured librarians from search queries and Primo metadata (off by default; no Towson librarian directory is configured)
 - Append a "Result landscape" facet summary (resource types, top subjects, creators, journals, languages, availability, publication years) so zero-result and too-many-result searches can be refined from data instead of guesswork
 - Act on that landscape with generic facet filters: `facet_filters={"topic": "Economics"}` narrows to a facet value, `facet_exclusions` removes one (any Primo facet, e.g. topic, lang, jtitle, tlevel, library)
 - Compound boolean queries: multi-clause AND/OR/NOT with contains/exact/begins_with operators for known-item lookups (title AND creator), exact-title checks, and OR expansion
 - Show physical shelf locations (library, location, call number, availability status) and direct full-text access links (proxied resource links, Alma link-resolver openurl) in search results and record details
 
-## Quick Start for SMU
+## Quick Start for Towson
 
 ### 1. Requirements
 
 - Python 3.11 or later
-- Claude Code installed
+- Claude Code (CLI, VS Code extension, or desktop app)
 
-### 2. Install the Primo MCP server
+### 2. Install the server
 
 ```bash
-git clone https://github.com/aarontaycheehsien/primo-mcp-server.git
-cd primo-mcp-server
-python -m pip install -e .
+git clone https://github.com/aligurbu/primo-mcp-server-towson.git
+cd primo-mcp-server-towson
+python -m venv .venv
+.venv/Scripts/python -m pip install -e .     # Windows
+# .venv/bin/python -m pip install -e .       # macOS / Linux
 ```
 
-SMU Primo settings are configured by default, so you do not need a `.env`
-file for basic use.
+Towson's OneSearch settings are the defaults, so no `.env` file is needed.
 
 ### 3. Add it to Claude Code
 
-To make Primo available in all your Claude Code projects:
+Point Claude Code at the virtual environment's Python, so the server runs
+with its own dependencies from any project (replace the path with your
+clone's):
 
 ```bash
-claude mcp add primo --scope user -- python -m primo_mcp_server
+claude mcp add primo-towson --scope user -- "C:/path/to/primo-mcp-server-towson/.venv/Scripts/python.exe" -m primo_mcp_server
 ```
 
-For a shared project setup instead, use `--scope project`, which writes the
-server definition to the project's `.mcp.json`.
+`--scope user` makes the server available in every project; `--scope project`
+writes it to one project's `.mcp.json` instead.
 
 ### 4. Check that it is connected
 
@@ -57,21 +93,18 @@ server definition to the project's `.mcp.json`.
 claude mcp list
 ```
 
-You should see `primo` listed. You can also type `/mcp` inside Claude Code
-to inspect MCP connections.
-
-The tools will appear with names such as `mcp__primo__primo_search`,
-`mcp__primo__primo_get_record`, and related tool names.
+`primo-towson` should show as connected; `/mcp` inside Claude Code shows the
+same. The tools appear as `mcp__primo-towson__primo_search`,
+`mcp__primo-towson__primo_get_record`, and so on. Start a new conversation
+(or reload the VS Code window) after adding the server.
 
 ### 5. Try it
 
-For example:
+> Search Towson's OneSearch for Saotome et al. 2018, "Structure of the
+> mechanically activated ion channel Piezo1", and tell me whether Towson has
+> full-text access.
 
-> Search the SMU catalogue for books about poverty in Singapore.
-
-or
-
-> Search Everything for peer-reviewed articles on open access citation advantage.
+> Search Towson's catalogue for books by Frederick Douglass.
 
 ## Development
 
@@ -83,7 +116,8 @@ pytest tests/ -v
 ### Live checks
 
 Every test above mocks Primo. `tests/test_live_primo.py` instead calls the
-real SMU Primo API, one test per behaviour the code relies on: scope and tab
+real Primo API (Towson OneSearch by default), one test per behaviour the code
+relies on: scope and tab
 names, query separators, date and resource-type filters, facets under
 concurrent searches, guest-token record lookup for Alma and CDI records,
 citation and export on real records, and autocomplete. They are skipped by
@@ -139,13 +173,19 @@ pipeline with a stubbed LLM and toy corpus.
 
 ## Scope Behaviour
 
-Use these canonical scopes:
+Use these canonical scopes. At Towson they map to these OneSearch tabs and
+Primo scopes:
 
-| Scope | Covers | Common aliases |
-|-------|--------|----------------|
-| `catalogue` | Local catalogue records, including books, databases, and videos | `catalog`, `local`, `myinstitution`, `my_institution` |
-| `everything` | Local catalogue plus Primo Central Index articles and remote records | `all`, `combined`, `myinst_and_ci`, `pci` |
-| `books_videos` | Institution books/videos tab where configured | `booksvideos`, `booksandvideos`, `books/videos`, `books & videos` |
+| Scope | Towson tab / scope | Covers | Common aliases |
+|-------|--------------------|--------|----------------|
+| `everything` (default) | `Everything` / `DN_and_CI` | OneSearch's default search: Towson's catalogue, the other USMAI libraries' catalogues, and article-index (CDI) records Towson can access | `all`, `combined`, `pci`, `dn_and_ci`, `myinst_and_ci` |
+| `catalogue` | `TULibraryCatalog` / `MyInstitution` | Towson's own holdings only (books, ebooks, journals, databases, videos); no article index | `catalog`, `local`, `myinstitution`, `my_institution` |
+| `books_videos` | `New_Network_Catalog` / `New_Discovery_Network` | The USMAI network catalogue: catalogue records from every USMAI library, no article index. Towson has no books/videos tab, so this slot is reused | `network`, `usmai`, `usmai_network`, `books/videos` |
+
+`MyInstitution` is not listed in Towson's view configuration, but Primo serves
+it and returns Towson's local records only. A title that appears under
+`everything` only because another USMAI library holds it is not a Towson
+holding, though Towson users can request it.
 
 Recommended caller policy:
 
@@ -182,52 +222,54 @@ Use compound queries for known-item lookups (title AND creator), exact-title
 subscription checks, genuine OR expansion across synonyms, or NOT exclusion.
 The result header links to the equivalent Primo advanced search.
 
-## SMU Configuration
+## Towson Configuration
 
-SMU is the default configuration for this fork. You can run without a `.env`
-file for SMU, or create one to make the settings explicit:
+Towson is the default configuration for this fork, so no `.env` file is
+needed. For reference, the values are:
 
 ```env
-PRIMO_BASE_URL=https://search.library.smu.edu.sg/primaws/rest/pub
-PRIMO_DISCOVERY_BASE_URL=https://search.library.smu.edu.sg/discovery
-PRIMO_VID=65SMU_INST:SMU_NUI
-PRIMO_INSTITUTION_NAME=SMU
+PRIMO_BASE_URL=https://usmai-tu.primo.exlibrisgroup.com/primaws/rest/pub
+PRIMO_DISCOVERY_BASE_URL=https://usmai-tu.primo.exlibrisgroup.com/discovery
+PRIMO_VID=01USMAI_TU:01USMAI_TU
+PRIMO_INSTITUTION_NAME=Towson University
 
 PRIMO_TAB_EVERYTHING=Everything
-PRIMO_TAB_CATALOGUE=Catalogue
-PRIMO_TAB_BOOKS_VIDEOS=booksandvideos
+PRIMO_TAB_CATALOGUE=TULibraryCatalog
+PRIMO_TAB_BOOKS_VIDEOS=New_Network_Catalog
 
-PRIMO_SCOPE_COMBINED=MyInst_and_CI
+PRIMO_SCOPE_COMBINED=DN_and_CI
 PRIMO_SCOPE_LOCAL=MyInstitution
-PRIMO_SCOPE_BOOKS_VIDEOS=BooksVideos
-
-PRIMO_LANGUAGE=en
-PRIMO_REQUEST_TIMEOUT=30.0
-PRIMO_MAX_RESULTS_PER_REQUEST=50
-PRIMO_DEFAULT_RESULTS=10
-PRIMO_LIBRARIANS_FILE=C:\path\to\smu-librarians.json
-PRIMO_INLINE_LIBRARIAN_RECOMMENDATIONS=true
-PRIMO_LIBRARIAN_MIN_SCORE=5.0
+PRIMO_SCOPE_BOOKS_VIDEOS=New_Discovery_Network
 ```
+
+The tab and scope names come from the view's public configuration,
+`https://usmai-tu.primo.exlibrisgroup.com/primaws/rest/pub/configuration/vid/01USMAI_TU:01USMAI_TU`;
+the `Everything` / `DN_and_CI` pair is also what the search box on the
+library home page uses.
+
+A `.env` file is read from the directory the server is started from, which
+under Claude Code is not this repository. To override a value for Claude
+Code, pass it when adding the server, e.g.
+`claude mcp add primo-towson --scope user -e PRIMO_DEFAULT_RESULTS=20 -- ...`.
 
 ## Configuration Reference
 
-Defaults are set for SMU. Other institutions can override these values with
-environment variables:
+Defaults are set for Towson. Other institutions can override these values
+with environment variables (upstream's README has the SMU values):
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `PRIMO_BASE_URL` | `https://search.library.smu.edu.sg/primaws/rest/pub` | Primo API base URL |
+| `PRIMO_BASE_URL` | `https://usmai-tu.primo.exlibrisgroup.com/primaws/rest/pub` | Primo API base URL |
 | `PRIMO_DISCOVERY_BASE_URL` | Derived from `PRIMO_BASE_URL` | Primo web app base URL for record and search links |
-| `PRIMO_VID` | `65SMU_INST:SMU_NUI` | Primo view ID |
+| `PRIMO_VID` | `01USMAI_TU:01USMAI_TU` | Primo view ID |
 | `PRIMO_INSTITUTION_CODE` | Derived from `PRIMO_VID` | Institution code for the guest JWT endpoint |
-| `PRIMO_INSTITUTION_NAME` | `SMU` | Display name |
-| `PRIMO_TAB_EVERYTHING` | `Everything` | Primo tab for combined local and CDI searches |
-| `PRIMO_TAB_CATALOGUE` | `Catalogue` | Primo tab for local catalogue searches |
-| `PRIMO_TAB_BOOKS_VIDEOS` | `booksandvideos` | Primo tab for books/videos searches |
-| `PRIMO_SCOPE_COMBINED` | `MyInst_and_CI` | Primo scope for combined local and CDI searches |
-| `PRIMO_SCOPE_LOCAL` | `MyInstitution` | Primo scope for local catalogue searches |
-| `PRIMO_SCOPE_BOOKS_VIDEOS` | `BooksVideos` | Primo scope for books/videos searches |
+| `PRIMO_INSTITUTION_NAME` | `Towson University` | Display name |
+| `PRIMO_TAB_EVERYTHING` | `Everything` | Primo tab for combined searches (`everything`) |
+| `PRIMO_TAB_CATALOGUE` | `TULibraryCatalog` | Primo tab for local catalogue searches (`catalogue`) |
+| `PRIMO_TAB_BOOKS_VIDEOS` | `New_Network_Catalog` | Primo tab for the third scope (`books_videos`; at Towson, the USMAI network catalogue) |
+| `PRIMO_SCOPE_COMBINED` | `DN_and_CI` | Primo scope for combined searches: USMAI catalogues plus CDI |
+| `PRIMO_SCOPE_LOCAL` | `MyInstitution` | Primo scope for Towson's local catalogue |
+| `PRIMO_SCOPE_BOOKS_VIDEOS` | `New_Discovery_Network` | Primo scope for the third scope (at Towson, the USMAI network catalogue) |
 | `PRIMO_REQUEST_TIMEOUT` | `30.0` | HTTP timeout in seconds |
 | `PRIMO_REQUEST_RETRY_ATTEMPTS` | `1` | Extra attempts after a transient Primo failure (timeout, connection error, HTTP 429/5xx); `0` disables retries |
 | `PRIMO_REQUEST_RETRY_MAX_DELAY` | `5.0` | Cap in seconds on the retry backoff, including a server-sent `Retry-After` |
@@ -235,7 +277,7 @@ environment variables:
 | `PRIMO_DEFAULT_RESULTS` | `10` | Default results per search |
 | `PRIMO_LANGUAGE` | `en` | Primo language parameter |
 | `PRIMO_INCLUDE_UNAVAILABLE` | `false` | Include CDI records without full text access in search results |
-| `PRIMO_SEARCH_FACETS` | `true` | Fetch the facet summary after each search and append a "Result landscape" section (facets are only served for the Everything scope; other scopes omit the section) |
+| `PRIMO_SEARCH_FACETS` | `true` | Fetch the facet summary after each search and append a "Result landscape" section. At Towson every scope serves facets (at SMU only Everything does). An empty facet list for a search of 100,000+ results is retried once after 1 s, because Primo computes facets for large searches in the background |
 | `PRIMO_LIBRARIANS_FILE` | unset | External JSON librarian directory used for recommendations |
 | `PRIMO_INLINE_LIBRARIAN_RECOMMENDATIONS` | `false` | Put matched, evidence-bearing librarian referrals before `primo_search` results. Off by default — every librarian switch ships off, since no profile data is bundled |
 | `PRIMO_LIBRARIAN_MIN_SCORE` | `5.0` | Minimum deterministic match score required before showing a recommendation |
@@ -552,10 +594,10 @@ traffic.
 
 From a Claude Code conversation:
 
-- "Search the catalogue for books on poverty in Singapore"
-- "Search Everything for peer-reviewed articles on open access citation advantage"
-- "Do we have access to JSTOR?"
-- "search for databases with data on cost of living"
+- "Search Towson's catalogue for books by Frederick Douglass"
+- "Search OneSearch for peer-reviewed articles on Piezo1 gating and membrane tension"
+- "Does Towson have full-text access to Saotome et al. 2018 in Nature?"
+- "Search the USMAI network catalogue for books on Chesapeake Bay ecology"
 - "Get the full details for record alma991234567890"
 - "Recommend a librarian for this accounting search"
 - "Generate APA7 citations for these records"
