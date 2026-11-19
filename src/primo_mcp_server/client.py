@@ -353,10 +353,24 @@ class PrimoClient:
             data = await self._get("/pnxs", params=params)
             response = SearchResponse.from_api_response(data)
             if include_facets and response.records:
-                response.facets = await self._fetch_facets(params)
+                response.facets = await self._fetch_facets(
+                    params, total=response.info.total
+                )
         return response
 
-    async def _fetch_facets(self, params: dict[str, Any]) -> list[Facet]:
+    # Primo computes facets for a large result set in the background, so a
+    # /facets call made straight after the /pnxs search can return an empty
+    # list that fills in a second later. Observed at Towson on 2026-11-19:
+    # "music" (5M results) had 0 facets at +0 s and 14 at +1 s under the same
+    # facetsCacheKey, while cold searches of 20-60k results were always
+    # ready. Retry once, and only for large searches, so a scope that serves
+    # no facets at all (e.g. SMU's local catalogue) never pays the delay.
+    _FACETS_RETRY_MIN_TOTAL = 100_000
+    _FACETS_RETRY_DELAY_SECONDS = 1.0
+
+    async def _fetch_facets(
+        self, params: dict[str, Any], total: int = 0
+    ) -> list[Facet]:
         """Fetch the facet summary for the search just executed.
 
         Primo's /facets endpoint returns facets for the search the current
@@ -365,8 +379,19 @@ class PrimoClient:
         carries the session cookie). Facets are auxiliary context: any
         failure degrades to no facets rather than failing the search, and
         scopes Primo serves no facets for (e.g. the local catalogue scope)
-        simply return an empty list.
+        simply return an empty list. An empty list for a search of at least
+        _FACETS_RETRY_MIN_TOTAL results is retried once after a short delay;
+        the caller still holds the exclusive search gate, so the retry reads
+        the same search.
         """
+        try:
+            data = await self._get("/facets", params=params)
+        except PrimoAPIError:
+            return []
+        facets = Facet.list_from_api_response(data)
+        if facets or total < self._FACETS_RETRY_MIN_TOTAL:
+            return facets
+        await asyncio.sleep(self._FACETS_RETRY_DELAY_SECONDS)
         try:
             data = await self._get("/facets", params=params)
         except PrimoAPIError:

@@ -656,6 +656,44 @@ class TestSearchFacets:
              "pnxs:any,contains,alpha", "facets:any,contains,alpha"],
         )
 
+    async def test_empty_facets_for_large_search_are_retried_once(self, monkeypatch):
+        # Primo can answer /facets with an empty list while it is still
+        # computing facets for a large result set.
+        monkeypatch.setattr(PrimoClient, "_FACETS_RETRY_DELAY_SECONDS", 0.0)
+        facet_calls = 0
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            nonlocal facet_calls
+            if request.url.path.endswith("/facets"):
+                facet_calls += 1
+                payload = {"facets": []} if facet_calls == 1 else _FACETS_PAYLOAD
+                return httpx.Response(200, json=payload)
+            payload = _search_payload()
+            payload["info"]["total"] = 5_000_000
+            return httpx.Response(200, json=payload)
+
+        response = await self._run_search(handler)
+
+        assert facet_calls == 2
+        assert [f.name for f in response.facets] == ["rtype"]
+
+    async def test_empty_facets_for_small_search_are_not_retried(self, monkeypatch):
+        # Scopes that serve no facets at all must not pay the retry delay.
+        monkeypatch.setattr(PrimoClient, "_FACETS_RETRY_DELAY_SECONDS", 0.0)
+        facet_calls = 0
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            nonlocal facet_calls
+            if request.url.path.endswith("/facets"):
+                facet_calls += 1
+                return httpx.Response(200, json={"facets": []})
+            return httpx.Response(200, json=_search_payload())  # total 1
+
+        response = await self._run_search(handler)
+
+        assert facet_calls == 1
+        assert response.facets == []
+
     async def test_facets_failure_degrades_to_no_facets(self):
         def handler(request: httpx.Request) -> httpx.Response:
             if request.url.path.endswith("/facets"):
