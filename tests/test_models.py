@@ -208,6 +208,20 @@ class TestNameCleaning:
         record = PrimoRecord.from_api_doc(doc)
         assert record.creators == ["American Institute of Aeronautics and Astronautics"]
 
+    def test_open_ended_page_range_loses_its_trailing_hyphen(self):
+        # cdi_crossref_primary_10_3390_computation13020047 in full display:
+        # spage "47-" (pages "47--"), which APA printed as "47-.".
+        doc = {
+            "pnx": {
+                "display": {"title": ["T"]},
+                "addata": {"spage": ["47-"], "epage": [" "]},
+                "control": {"recordid": ["cdi_x"]},
+            }
+        }
+        record = PrimoRecord.from_api_doc(doc)
+        assert record.start_page == "47"
+        assert record.end_page == ""
+
     def test_html_entities_from_primo_are_decoded(self):
         # alma9963950061708249 at Towson: Primo serves these names escaped.
         doc = {

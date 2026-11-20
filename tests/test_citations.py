@@ -193,7 +193,8 @@ class TestCitationDetails:
         )
 
     def test_apa_cites_the_article_number(self):
-        assert "*Journal of fluid mechanics*, *952*, Article A16." in format_citation(
+        # The record's "Journal of fluid mechanics" is given in title case.
+        assert "*Journal of Fluid Mechanics*, *952*, Article A16." in format_citation(
             self._li_koch(), "apa7"
         )
 
@@ -269,3 +270,97 @@ class TestCitationDetails:
         assert format_citation(record, "chicago").endswith(
             "Cambridge: Cambridge University Press, 2000."
         )
+
+
+class TestThirdRetestDetails:
+    """APA details from the third plugin test (2026-11-19), on live Towson records."""
+
+    @staticmethod
+    def _elsevier() -> PrimoRecord:
+        # cdi_crossref_citationtrail_10_1016_j_jmps_2021_104345: Primo files the
+        # article number both as addata.artnum and as addata.spage.
+        return PrimoRecord(
+            title="Elongation deformation of a red blood cell under shear flow",
+            resource_type="article",
+            authors_structured=["Tsubota, Ken-ichi"],
+            creation_date="2021-07",
+            journal_title="Journal of the Mechanics and Physics of Solids",
+            volume="152",
+            start_page="104345",
+            article_number="104345",
+            doi="10.1016/j.jmps.2021.104345",
+        )
+
+    @staticmethod
+    def _mdpi() -> PrimoRecord:
+        # cdi_crossref_primary_10_3390_computation13020047: no artnum; MDPI
+        # numbers every article and files the number as the start page.
+        return PrimoRecord(
+            title="Transport characteristics of small molecules near deforming blood cells",
+            resource_type="article",
+            authors_structured=["Nix, Stephanie"],
+            creation_date="2025-02",
+            journal_title="Computation",
+            volume="13",
+            issue="2",
+            start_page="47",
+            doi="10.3390/computation13020047",
+        )
+
+    def test_hyphenated_given_name_keeps_both_initials(self):
+        record = self._elsevier()
+        assert format_citation(record, "apa7").startswith("Tsubota, K.-i. (2021).")
+        assert format_citation(record, "ieee").startswith("K.-i. Tsubota,")
+        assert format_citation(record, "vancouver").startswith("Tsubota KI.")
+
+    def test_initials_written_without_a_space_are_both_kept(self):
+        # cdi_crossref_citationtrail_10_1016_j_compfluid_2020_104786: "Lyu, J.M."
+        record = self._elsevier().model_copy(
+            update={"authors_structured": ["Lyu, J.M.", "Chen, Paul G."]}
+        )
+        assert format_citation(record, "apa7").startswith("Lyu, J. M., & Chen, P. G. (2021).")
+        assert format_citation(record, "vancouver").startswith("Lyu JM, Chen PG.")
+
+    def test_article_number_filed_as_start_page_is_cited_as_article(self):
+        record = self._elsevier()
+        assert "*152*, Article 104345." in format_citation(record, "apa7")
+        assert "vol. 152, Art. no. 104345, 2021." in format_citation(record, "ieee")
+
+    def test_mdpi_start_page_is_cited_as_its_article_number(self):
+        assert "*13*(2), Article 47." in format_citation(self._mdpi(), "apa7")
+
+    def test_page_range_is_still_cited_as_pages(self):
+        record = self._elsevier().model_copy(
+            update={"start_page": "100", "end_page": "115", "article_number": "104345"}
+        )
+        assert "*152*, 100-115." in format_citation(record, "apa7")
+
+    def test_journal_title_is_given_in_title_case(self):
+        # CDI often stores journal titles in sentence case.
+        record = self._elsevier().model_copy(
+            update={"journal_title": "Journal of computational physics"}
+        )
+        for style in ("apa7", "chicago", "harvard", "ieee"):
+            assert "*Journal of Computational Physics*" in format_citation(record, style), style
+        # Vancouver keeps the record's form, as NLM title abbreviations do.
+        assert "Journal of computational physics." in format_citation(record, "vancouver")
+
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        [
+            ("Journal of computational physics", "Journal of Computational Physics"),
+            ("Computers & fluids", "Computers & Fluids"),
+            ("The journal of the acoustical society of america",
+             "The Journal of the Acoustical Society of America"),
+            ("Biochimica et biophysica acta: biomembranes",
+             "Biochimica et Biophysica Acta: Biomembranes"),
+            ("IEEE transactions on medical imaging", "IEEE Transactions on Medical Imaging"),
+            # Words with capitals of their own are left as the record has them.
+            ("PLoS ONE", "PLoS ONE"),
+            ("eLife", "eLife"),
+        ],
+    )
+    def test_title_case_rules(self, raw, expected):
+        from primo_mcp_server.citations import _title_case
+
+        assert _title_case(raw) == expected

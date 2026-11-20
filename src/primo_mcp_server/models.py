@@ -480,8 +480,8 @@ class PrimoRecord(BaseModel):
             journal_title=_strip_subfields(_first_or_empty(addata.get("jtitle"))),
             volume=_first_or_empty(addata.get("volume")),
             issue=_first_or_empty(addata.get("issue")),
-            start_page=_first_or_empty(addata.get("spage")),
-            end_page=_first_or_empty(addata.get("epage")),
+            start_page=_page(_first_or_empty(addata.get("spage"))),
+            end_page=_page(_first_or_empty(addata.get("epage"))),
             article_number=_first_or_empty(addata.get("artnum")).strip(),
             peer_reviewed=peer_reviewed,
             ris_type=_first_or_empty(addata.get("ristype")),
@@ -548,6 +548,24 @@ class PrimoRecord(BaseModel):
         return place.strip() if separator else ""
 
     @property
+    def cited_article_number(self) -> str:
+        """The article number to give instead of pages, or "" for a page range.
+
+        Primo often files an article number as the start page as well
+        (Elsevier: artnum and spage both "104345"), so it wins over a lone
+        start page. MDPI numbers every article and files the number as the
+        start page only, with no artnum, so its start page is taken as the
+        article number (cdi_crossref_primary_10_3390_computation13020047).
+        """
+        if self.end_page:
+            return ""
+        if self.article_number:
+            return self.article_number
+        if self.start_page and self.doi.lower().startswith(_ARTICLE_NUMBER_DOI_PREFIXES):
+            return self.start_page
+        return ""
+
+    @property
     def year(self) -> str:
         """Four-digit year extracted from creation_date.
 
@@ -557,6 +575,16 @@ class PrimoRecord(BaseModel):
         """
         m = re.search(r"\d{4}", self.creation_date)
         return m.group(0) if m else ""
+
+
+def _page(value: str) -> str:
+    """A page value without the open-range dash Primo leaves on some ("47-")."""
+    return value.strip().rstrip("-\u2013").strip()
+
+
+# DOI prefixes of publishers that number every article and file the number
+# as the start page: MDPI.
+_ARTICLE_NUMBER_DOI_PREFIXES = ("10.3390/",)
 
 
 def _timelog_ms(data: dict, key: str) -> int | None:

@@ -167,6 +167,26 @@ class TestFormatSearchResults:
         assert "Availability: Electronic resource: check availability in OneSearch" in output
         assert "Record ID: alma99908902601" in output
 
+    def test_article_number_shows_as_article_not_pages(self):
+        # Computers & Fluids files the article number as artnum and spage.
+        record = PrimoRecord(
+            record_id="cdi_crossref_citationtrail_10_1016_j_compfluid_2020_104786",
+            title="T",
+            context="PC",
+            journal_title="Computers & Fluids",
+            volume="214",
+            start_page="104786",
+            article_number="104786",
+        )
+        response = SearchResponse.model_validate({"info": {"total": 1}, "records": [record]})
+
+        output = format_search_results(response, "isogeometric", config=_smu_config())
+        detail = format_record_detail(record, _smu_config())
+
+        assert "Computers & Fluids, 214, article 104786" in output
+        assert "Journal: Computers & Fluids, vol. 214, article 104786" in detail
+        assert "pp. 104786" not in output + detail
+
     def test_quoted_query_is_not_quoted_twice(self):
         record = PrimoRecord(record_id="cdi_1", title="T", context="PC")
         found = SearchResponse.model_validate({"info": {"total": 4}, "records": [record]})

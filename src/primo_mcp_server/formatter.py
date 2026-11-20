@@ -588,7 +588,9 @@ def format_search_results(
                 journal_info += f", {record.volume}"
             if record.issue:
                 journal_info += f"({record.issue})"
-            if record.start_page:
+            if record.cited_article_number:
+                journal_info += f", article {record.cited_article_number}"
+            elif record.start_page:
                 journal_info += f", pp. {record.start_page}"
                 if record.end_page:
                     journal_info += f"-{record.end_page}"
@@ -669,7 +671,9 @@ def format_record_detail(record: PrimoRecord, config: PrimoConfig | None = None)
             journal += f", vol. {record.volume}"
         if record.issue:
             journal += f", no. {record.issue}"
-        if record.start_page:
+        if record.cited_article_number:
+            journal += f", article {record.cited_article_number}"
+        elif record.start_page:
             journal += f", pp. {record.start_page}"
             if record.end_page:
                 journal += f"-{record.end_page}"

@@ -49,11 +49,9 @@ def _pages(record: PrimoRecord, dash: str) -> str:
     (BibTeX pages, RIS SP), which is also where publishers' own exports for
     article-numbered journals put it.
     """
-    if record.start_page:
-        if record.end_page:
-            return f"{record.start_page}{dash}{record.end_page}"
-        return record.start_page
-    return record.article_number
+    if record.start_page and record.end_page:
+        return f"{record.start_page}{dash}{record.end_page}"
+    return record.cited_article_number or record.start_page
 
 
 def _bibtex_escape(value: str) -> str:

@@ -25,8 +25,8 @@ def _has_cjk(value: str) -> bool:
     return bool(_CJK_RE.search(value))
 
 
-def _initial(word: str) -> str:
-    """The initial of one given-name word, in capitals.
+def _initial(word: str, keep_case: bool = False) -> str:
+    """The initial of one given-name word, in capitals unless keep_case.
 
     A letter keeps the combining marks after it, and a joining mark pulls in
     the next letter too: Posudin's romanised given name (alma9963964836008249
@@ -37,7 +37,7 @@ def _initial(word: str) -> str:
     i = 0
     take_next = True
     while i < len(word) and take_next:
-        letters.append(word[i].upper())
+        letters.append(word[i] if keep_case else word[i].upper())
         i += 1
         take_next = False
         while i < len(word) and unicodedata.combining(word[i]):
@@ -45,6 +45,30 @@ def _initial(word: str) -> str:
             take_next = take_next or word[i] in _JOINING_MARKS
             i += 1
     return "".join(letters)
+
+
+def _given_initials(given: str, compact: bool = False) -> str:
+    """Initials of a given name, as "J. M." or, when compact, "JM".
+
+    Periods separate names as spaces do, so "J.M." (Lyu in
+    cdi_crossref_citationtrail_10_1016_j_compfluid_2020_104786) keeps both
+    initials. A hyphenated name keeps its hyphen and the case of its later
+    parts, as APA and IEEE write it: "Ken-ichi" gives "K.-i." (Tsubota in
+    cdi_crossref_citationtrail_10_1016_j_jmps_2021_104345); compact
+    (Vancouver) initials drop the hyphen: "KI".
+    """
+    names = [name for name in re.split(r"[\s.]+", given) if name]
+    if compact:
+        return "".join(
+            _initial(part) for name in names for part in name.split("-") if part
+        )
+    initials: list[str] = []
+    for name in names:
+        parts = [part for part in name.split("-") if part]
+        if parts:
+            letters = [_initial(parts[0])] + [_initial(p, keep_case=True) for p in parts[1:]]
+            initials.append("-".join(f"{letter}." for letter in letters))
+    return " ".join(initials)
 
 
 def _authors_last_initials(creators: list[str]) -> list[str]:
@@ -57,9 +81,8 @@ def _authors_last_initials(creators: list[str]) -> list[str]:
         parts = c.split(",", 1)
         if len(parts) == 2:
             last = parts[0].strip()
-            first = parts[1].strip()
-            initials = ". ".join(_initial(w) for w in first.split() if w) + "."
-            result.append(f"{last}, {initials}")
+            initials = _given_initials(parts[1].strip())
+            result.append(f"{last}, {initials}" if initials else last)
         else:
             result.append(c.strip())
     return result
@@ -92,6 +115,44 @@ def _authors_harvard(creators: list[str]) -> str:
     if len(formatted) <= 20:
         return ", ".join(formatted[:-1]) + " and " + formatted[-1]
     return ", ".join(formatted[:19]) + ", ... " + formatted[-1]
+
+
+# Minor words that APA 7 title case keeps in lower case (three letters or
+# fewer), plus Latin "et" (Biochimica et Biophysica Acta).
+_MINOR_WORDS = frozenset(
+    "a an and as at but by et for if in nor of off on or per so the to up via yet".split()
+)
+
+
+def _capitalise(word: str) -> str:
+    """Capitalise the first letter of each hyphen-separated part."""
+    parts = []
+    for part in word.split("-"):
+        for i, char in enumerate(part):
+            if char.isalpha():
+                part = part[:i] + char.upper() + part[i + 1:]
+                break
+        parts.append(part)
+    return "-".join(parts)
+
+
+def _title_case(text: str) -> str:
+    """Title case for a journal name; CDI often stores them in sentence case.
+
+    Only all-lower-case words change, so acronyms and brand forms ("IEEE",
+    "PLoS ONE", "eLife") stay as the record has them. Minor words stay in
+    lower case except first and after a colon or full stop.
+    """
+    words = []
+    capitalise_next = True
+    for word in text.split(" "):
+        minor = word.strip(",;:.()").lower() in _MINOR_WORDS
+        if word.islower() and (capitalise_next or not minor):
+            word = _capitalise(word)
+        words.append(word)
+        if word:
+            capitalise_next = word.endswith((":", ".", "?", "!"))
+    return " ".join(words)
 
 
 def _terminate(text: str) -> str:
@@ -131,9 +192,8 @@ def _authors_ieee(creators: list[str]) -> list[str]:
         parts = c.split(",", 1)
         if len(parts) == 2:
             last = parts[0].strip()
-            first = parts[1].strip()
-            initials = ". ".join(_initial(w) for w in first.split() if w) + "."
-            result.append(f"{initials} {last}")
+            initials = _given_initials(parts[1].strip())
+            result.append(f"{initials} {last}" if initials else last)
         else:
             result.append(c.strip())
     return result
@@ -149,9 +209,8 @@ def _authors_vancouver(creators: list[str]) -> str:
         parts = c.split(",", 1)
         if len(parts) == 2:
             last = parts[0].strip()
-            first = parts[1].strip()
-            initials = "".join(_initial(w) for w in first.split() if w)
-            formatted.append(f"{last} {initials}")
+            initials = _given_initials(parts[1].strip(), compact=True)
+            formatted.append(f"{last} {initials}" if initials else last)
         else:
             formatted.append(c.strip())
     if not formatted:
@@ -171,7 +230,7 @@ def _cite_article_apa(r: PrimoRecord) -> str:
     authors = _authors_apa(r.display_authors)
     year = _year(r)
     title = r.title.rstrip(".")
-    journal = r.journal_title
+    journal = _title_case(r.journal_title)
 
     parts = [f"{authors} ({year}). {title}."]
     if journal:
@@ -180,12 +239,12 @@ def _cite_article_apa(r: PrimoRecord) -> str:
             vol_info += f", *{r.volume}*"
         if r.issue:
             vol_info += f"({r.issue})"
-        if r.start_page:
+        if r.cited_article_number:
+            vol_info += f", Article {r.cited_article_number}"
+        elif r.start_page:
             vol_info += f", {r.start_page}"
             if r.end_page:
                 vol_info += f"-{r.end_page}"
-        elif r.article_number:
-            vol_info += f", Article {r.article_number}"
         parts.append(f"{vol_info}.")
     if r.doi:
         parts.append(f"https://doi.org/{r.doi}")
@@ -212,7 +271,7 @@ def _cite_article_harvard(r: PrimoRecord) -> str:
     authors = _authors_harvard(r.display_authors)
     year = _year(r)
     title = r.title.rstrip(".")
-    journal = r.journal_title
+    journal = _title_case(r.journal_title)
 
     parts = [f"{authors} ({year}) '{title}',"]
     if journal:
@@ -221,12 +280,12 @@ def _cite_article_harvard(r: PrimoRecord) -> str:
             vol_info += f", vol. {r.volume}"
         if r.issue:
             vol_info += f", no. {r.issue}"
-        if r.start_page:
+        if r.cited_article_number:
+            vol_info += f", article {r.cited_article_number}"
+        elif r.start_page:
             vol_info += f", pp. {r.start_page}"
             if r.end_page:
                 vol_info += f"-{r.end_page}"
-        elif r.article_number:
-            vol_info += f", article {r.article_number}"
         parts.append(f"{vol_info}.")
     if r.doi:
         parts.append(f"https://doi.org/{r.doi}")
@@ -251,7 +310,7 @@ def _cite_article_chicago(r: PrimoRecord) -> str:
     authors = _authors_chicago(r.display_authors)
     year = _year(r)
     title = r.title.rstrip(".")
-    journal = r.journal_title
+    journal = _title_case(r.journal_title)
 
     parts = [f'{_terminate(authors)} "{title}."']
     if journal:
@@ -261,13 +320,13 @@ def _cite_article_chicago(r: PrimoRecord) -> str:
         if r.issue:
             vol_info += f", no. {r.issue}"
         parts.append(f"{vol_info} ({year})")
-        if r.start_page:
+        if r.cited_article_number:
+            parts[-1] += f": {r.cited_article_number}"
+        elif r.start_page:
             start = r.start_page
             if r.end_page:
                 start += f"-{r.end_page}"
             parts[-1] += f": {start}"
-        elif r.article_number:
-            parts[-1] += f": {r.article_number}"
         parts[-1] += "."
     else:
         # Without a journal title the year was previously dropped entirely,
@@ -311,7 +370,7 @@ def _cite_article_ieee(r: PrimoRecord) -> str:
     authors_str = _join_ieee(_authors_ieee(r.display_authors))
 
     title = r.title.rstrip(".")
-    journal = r.journal_title or ""
+    journal = _title_case(r.journal_title)
     year = _year(r)
 
     parts = [f'{authors_str}, "{title},"']
@@ -321,12 +380,12 @@ def _cite_article_ieee(r: PrimoRecord) -> str:
             vol_info += f", vol. {r.volume}"
         if r.issue:
             vol_info += f", no. {r.issue}"
-        if r.start_page:
+        if r.cited_article_number:
+            vol_info += f", Art. no. {r.cited_article_number}"
+        elif r.start_page:
             vol_info += f", pp. {r.start_page}"
             if r.end_page:
                 vol_info += f"-{r.end_page}"
-        elif r.article_number:
-            vol_info += f", Art. no. {r.article_number}"
         parts.append(f"{vol_info}, {year}.")
     else:
         # Without a journal title the year was previously dropped entirely,
@@ -367,12 +426,12 @@ def _cite_article_vancouver(r: PrimoRecord) -> str:
             vol_info += f";{r.volume}"
         if r.issue:
             vol_info += f"({r.issue})"
-        if r.start_page:
+        if r.cited_article_number:
+            vol_info += f":{r.cited_article_number}"
+        elif r.start_page:
             vol_info += f":{r.start_page}"
             if r.end_page:
                 vol_info += f"-{r.end_page}"
-        elif r.article_number:
-            vol_info += f":{r.article_number}"
         parts.append(f"{vol_info}.")
     else:
         # Without a journal title the year was previously dropped entirely,

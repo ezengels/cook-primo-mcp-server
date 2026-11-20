@@ -183,6 +183,14 @@ made for it lives in the plugin's own folder and is removed with it.
   Pages). `primo_cite` and `primo_export` name any record IDs they could not
   find; `primo_export` puts that note in a separate text block, so the
   export stays importable as it is.
+- More citation details: initials written without a space ("Lyu, J.M.")
+  keep both letters, and hyphenated given names keep their hyphen ("Ken-ichi"
+  gives "K.-i."); Primo often files an article number as the start page as
+  well (Elsevier), so the article number wins over a lone start page, and an
+  MDPI start page counts as its article number ("Article 47"); a trailing
+  dash on a start page ("47-") is dropped; journal names are given in title
+  case in APA, Harvard, Chicago and IEEE, changing only all-lower-case
+  words.
 - Smaller output fixes: HTML character references that Primo leaves in some
   names and titles ("M&#233;xico") are decoded; a quoted phrase query is no
   longer printed with doubled quotes; an invalid `sort_by` names the values
