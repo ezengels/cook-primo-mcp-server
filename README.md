@@ -191,6 +191,15 @@ made for it lives in the plugin's own folder and is removed with it.
   dash on a start page ("47-") is dropped; journal names are given in title
   case in APA, Harvard, Chicago and IEEE, changing only all-lower-case
   words.
+- Catalogue punctuation in citations, found by checking 240 live records in
+  every style: "Title : subtitle" is written "Title: subtitle" (APA also
+  capitalises the subtitle); multi-place imprints and second publisher
+  names lose their catalogue separators ("Philadelphia ;", "Knopf :
+  distributed by Random House"); a publisher ending in "Inc." or a title
+  ending in "?" gets no second full stop; Wiley's end page "n/a" is
+  ignored, and an eLocator start page ("e12573") is cited as an article
+  number; a conference heading's catalogue qualifier ("(18th : 1986)") is
+  left out of the author.
 - Smaller output fixes: HTML character references that Primo leaves in some
   names and titles ("M&#233;xico") are decoded; a quoted phrase query is no
   longer printed with doubled quotes; an invalid `sort_by` names the values

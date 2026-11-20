@@ -2,7 +2,7 @@
 
 import pytest
 
-from primo_mcp_server.citations import format_citation, invalid_style_message
+from primo_mcp_server.citations import CITATION_STYLES, format_citation, invalid_style_message
 from primo_mcp_server.models import PrimoRecord, SearchResponse
 
 
@@ -199,9 +199,11 @@ class TestCitationDetails:
         )
 
     def test_apa_book_names_both_authors_and_the_publisher_without_its_place(self):
+        # The catalogue's "Title : subtitle" becomes "Title: Subtitle" (APA
+        # capitalises the first word of a subtitle).
         assert format_citation(self._kim_karrila(), "apa7") == (
             "Kim, S., & Karrila, S. J. (1991). "
-            "*Microhydrodynamics : principles and selected applications*. "
+            "*Microhydrodynamics: Principles and selected applications*. "
             "Butterworth-Heinemarm."
         )
 
@@ -364,3 +366,87 @@ class TestThirdRetestDetails:
         from primo_mcp_server.citations import _title_case
 
         assert _title_case(raw) == expected
+
+
+class TestCataloguePunctuation:
+    """Found by a sweep of 120 live Towson records in all five styles."""
+
+    def test_catalogue_colon_spacing_is_fixed_in_titles_and_journal_names(self):
+        article = PrimoRecord(
+            title="Plant phylogenomics : where are we",
+            resource_type="article",
+            authors_structured=["Wen, Jun"],
+            creation_date="2020",
+            journal_title="Journal of systematics and evolution : JSE",
+            volume="58",
+            start_page="533",
+            end_page="545",
+        )
+        apa = format_citation(article, "apa7")
+        assert "Plant phylogenomics: Where are we." in apa
+        assert "*Journal of Systematics and Evolution: JSE*" in apa
+        for style in CITATION_STYLES:
+            assert " : " not in format_citation(article, style), style
+
+    def test_title_ending_in_a_question_mark_gets_no_extra_period(self):
+        article = PrimoRecord(
+            title="Plant phylogenomics: where are we?",
+            resource_type="article",
+            authors_structured=["Wen, Jun"],
+            creation_date="2020",
+            journal_title="Journal of systematics and evolution",
+            volume="58",
+        )
+        assert "where are we? *Journal" in format_citation(article, "apa7").replace("Where", "where")
+        assert '"Plant phylogenomics: where are we?"' in format_citation(article, "chicago")
+        for style in CITATION_STYLES:
+            assert "?." not in format_citation(article, style), style
+
+    def test_publisher_ending_in_a_period_is_not_doubled(self):
+        # alma990016674110108249: "Baltimore : Celebrate Maryland, Inc."
+        book = PrimoRecord(
+            title="Maryland", resource_type="book", authors_structured=["Doe, Jane"],
+            creation_date="2005", publisher_name="Celebrate Maryland, Inc.",
+            publication_place="Baltimore",
+        )
+        assert format_citation(book, "apa7").endswith("Celebrate Maryland, Inc.")
+        for style in CITATION_STYLES:
+            assert ".." not in format_citation(book, style), style
+
+    def test_multi_place_imprint_has_no_stray_semicolon(self):
+        # alma990015940980108249: addata.cop "Philadelphia ;".
+        book = PrimoRecord(
+            title="Frederick Douglass", resource_type="book",
+            authors_structured=["Washington, Booker T."], creation_date="1907",
+            publisher_name="G.W. Jacobs", publication_place="Philadelphia ;",
+        )
+        assert format_citation(book, "chicago").endswith("Philadelphia: G.W. Jacobs, 1907.")
+
+    def test_meeting_qualifier_is_left_out_of_a_conference_author(self):
+        # alma9964138891408249: the meeting heading's number and date
+        # "(18th : 1986)" are catalogue metadata; a fuller-name
+        # parenthetical without " : " is kept.
+        book = PrimoRecord(
+            title="Three-dimensional models of marine and estuarine dynamics",
+            resource_type="book",
+            creators=[
+                "International Liege Colloquium on Ocean Hydrodynamics (18th : 1986)",
+                "Nihoul, Jacques C. J.",
+            ],
+            creation_date="1987",
+        )
+        apa = format_citation(book, "apa7")
+        assert apa.startswith(
+            "International Liege Colloquium on Ocean Hydrodynamics, & Nihoul, J. C. J. (1987)."
+        )
+        for style in CITATION_STYLES:
+            assert "(18th" not in format_citation(book, style), style
+
+    def test_elocator_is_cited_as_article(self):
+        # cdi_crossref_citationtrail_10_1111_jjns_12573 (Wiley).
+        article = PrimoRecord(
+            title="T", resource_type="article", authors_structured=["Doe, Jane"],
+            creation_date="2024", journal_title="Japan journal of nursing science",
+            volume="21", issue="2", start_page="e12573", doi="10.1111/jjns.12573",
+        )
+        assert "*21*(2), Article e12573." in format_citation(article, "apa7")

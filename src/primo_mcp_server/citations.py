@@ -25,6 +25,18 @@ def _has_cjk(value: str) -> bool:
     return bool(_CJK_RE.search(value))
 
 
+# The number, date and place a catalogue adds to a conference heading,
+# "(18th : 1986)" or "(2nd : 2010 : Baltimore, Md.)"; a fuller-name
+# parenthetical such as "(John Alan)" has no " : " and is kept.
+_MEETING_QUALIFIER_RE = re.compile(r"\s*\([^()]*\s:\s[^()]*\)\s*$")
+
+
+def _without_meeting_qualifier(name: str) -> str:
+    """A name without a conference heading's catalogue qualifier
+    (alma9964138891408249 at Towson)."""
+    return _MEETING_QUALIFIER_RE.sub("", name)
+
+
 def _initial(word: str, keep_case: bool = False) -> str:
     """The initial of one given-name word, in capitals unless keep_case.
 
@@ -74,7 +86,7 @@ def _given_initials(given: str, compact: bool = False) -> str:
 def _authors_last_initials(creators: list[str]) -> list[str]:
     """Convert 'Last, First' to 'Last, F.' format."""
     result = []
-    for c in creators:
+    for c in map(_without_meeting_qualifier, creators):
         if _has_cjk(c):
             result.append(c.strip())
             continue
@@ -168,6 +180,26 @@ def _publisher_with_place(r: PrimoRecord) -> str:
     return name or place
 
 
+def _isbd(text: str) -> str:
+    """Catalogue (ISBD) spacing as ordinary punctuation.
+
+    Catalogue titles and journal names put a space before a colon or
+    semicolon ("Microhydrodynamics : principles and selected applications",
+    "Journal of systematics and evolution : JSE"); citations do not.
+    """
+    return re.sub(r"\s+([:;])\s+", r"\1 ", text).strip()
+
+
+def _apa_title(text: str) -> str:
+    """A title for APA 7, which capitalises the first word of a subtitle."""
+    return re.sub(r": (\w)", lambda m: ": " + m.group(1).upper(), _isbd(text))
+
+
+def _italic_title(title: str) -> str:
+    """An italic title that ends an element: no period after "?" or "!"."""
+    return f"*{title}*" if title.endswith(("?", "!")) else f"*{title}*."
+
+
 def _authors_chicago(creators: list[str]) -> str:
     """Format authors in Chicago style."""
     formatted = _authors_last_initials(creators)
@@ -185,7 +217,7 @@ def _authors_chicago(creators: list[str]) -> str:
 def _authors_ieee(creators: list[str]) -> list[str]:
     """Format authors in IEEE style (F. Last)."""
     result = []
-    for c in creators:
+    for c in map(_without_meeting_qualifier, creators):
         if _has_cjk(c):
             result.append(c.strip())
             continue
@@ -202,7 +234,7 @@ def _authors_ieee(creators: list[str]) -> list[str]:
 def _authors_vancouver(creators: list[str]) -> str:
     """Format authors in Vancouver style."""
     formatted = []
-    for c in creators:
+    for c in map(_without_meeting_qualifier, creators):
         if _has_cjk(c):
             formatted.append(c.strip())
             continue
@@ -229,10 +261,10 @@ def _cite_article_apa(r: PrimoRecord) -> str:
     """APA 7 article citation."""
     authors = _authors_apa(r.display_authors)
     year = _year(r)
-    title = r.title.rstrip(".")
-    journal = _title_case(r.journal_title)
+    title = _apa_title(r.title.rstrip("."))
+    journal = _title_case(_isbd(r.journal_title))
 
-    parts = [f"{authors} ({year}). {title}."]
+    parts = [f"{authors} ({year}). {_terminate(title)}"]
     if journal:
         vol_info = f"*{journal}*"
         if r.volume:
@@ -255,12 +287,12 @@ def _cite_book_apa(r: PrimoRecord) -> str:
     """APA 7 book citation (APA 7 omits the place of publication)."""
     authors = _authors_apa(r.display_authors)
     year = _year(r)
-    title = r.title.rstrip(".")
+    title = _apa_title(r.title.rstrip("."))
     publisher = r.publisher_without_place
 
-    parts = [f"{authors} ({year}). *{title}*."]
+    parts = [f"{authors} ({year}). {_italic_title(title)}"]
     if publisher:
-        parts.append(f"{publisher}.")
+        parts.append(_terminate(publisher))
     if r.doi:
         parts.append(f"https://doi.org/{r.doi}")
     return " ".join(parts)
@@ -270,8 +302,8 @@ def _cite_article_harvard(r: PrimoRecord) -> str:
     """Harvard article citation."""
     authors = _authors_harvard(r.display_authors)
     year = _year(r)
-    title = r.title.rstrip(".")
-    journal = _title_case(r.journal_title)
+    title = _isbd(r.title.rstrip("."))
+    journal = _title_case(_isbd(r.journal_title))
 
     parts = [f"{authors} ({year}) '{title}',"]
     if journal:
@@ -296,12 +328,12 @@ def _cite_book_harvard(r: PrimoRecord) -> str:
     """Harvard book citation."""
     authors = _authors_harvard(r.display_authors)
     year = _year(r)
-    title = r.title.rstrip(".")
+    title = _isbd(r.title.rstrip("."))
     publisher = _publisher_with_place(r)
 
     parts = [f"{authors} ({year}) *{title}*,"]
     if publisher:
-        parts.append(f"{publisher}.")
+        parts.append(_terminate(publisher))
     return " ".join(parts)
 
 
@@ -309,10 +341,12 @@ def _cite_article_chicago(r: PrimoRecord) -> str:
     """Chicago article citation."""
     authors = _authors_chicago(r.display_authors)
     year = _year(r)
-    title = r.title.rstrip(".")
-    journal = _title_case(r.journal_title)
+    title = _isbd(r.title.rstrip("."))
+    journal = _title_case(_isbd(r.journal_title))
 
-    parts = [f'{_terminate(authors)} "{title}."']
+    # A question or exclamation mark ends the quoted title without a period.
+    quoted = f'"{title}"' if title.endswith(("?", "!")) else f'"{title}."'
+    parts = [f"{_terminate(authors)} {quoted}"]
     if journal:
         vol_info = f"*{journal}*"
         if r.volume:
@@ -341,10 +375,10 @@ def _cite_book_chicago(r: PrimoRecord) -> str:
     """Chicago book citation."""
     authors = _authors_chicago(r.display_authors)
     year = _year(r)
-    title = r.title.rstrip(".")
+    title = _isbd(r.title.rstrip("."))
     publisher = _publisher_with_place(r)
 
-    parts = [f"{_terminate(authors)} *{title}*."]
+    parts = [f"{_terminate(authors)} {_italic_title(title)}"]
     if publisher:
         parts.append(f"{publisher}, {year}.")
     else:
@@ -369,8 +403,8 @@ def _cite_article_ieee(r: PrimoRecord) -> str:
     """IEEE article citation."""
     authors_str = _join_ieee(_authors_ieee(r.display_authors))
 
-    title = r.title.rstrip(".")
-    journal = _title_case(r.journal_title)
+    title = _isbd(r.title.rstrip("."))
+    journal = _title_case(_isbd(r.journal_title))
     year = _year(r)
 
     parts = [f'{authors_str}, "{title},"']
@@ -400,11 +434,11 @@ def _cite_book_ieee(r: PrimoRecord) -> str:
     """IEEE book citation (authors joined as for articles)."""
     authors_str = _join_ieee(_authors_ieee(r.display_authors))
 
-    title = r.title.rstrip(".")
+    title = _isbd(r.title.rstrip("."))
     publisher = _publisher_with_place(r)
     year = _year(r)
 
-    parts = [f"{authors_str}, *{title}*."]
+    parts = [f"{authors_str}, {_italic_title(title)}"]
     if publisher:
         parts.append(f"{publisher}, {year}.")
     else:
@@ -415,11 +449,11 @@ def _cite_book_ieee(r: PrimoRecord) -> str:
 def _cite_article_vancouver(r: PrimoRecord) -> str:
     """Vancouver article citation."""
     authors = _authors_vancouver(r.display_authors)
-    title = r.title.rstrip(".")
-    journal = r.journal_title or ""
+    title = _isbd(r.title.rstrip("."))
+    journal = _isbd(r.journal_title)
     year = _year(r)
 
-    parts = [f"{_terminate(authors)} {title}."]
+    parts = [f"{_terminate(authors)} {_terminate(title)}"]
     if journal:
         vol_info = f"{journal}. {year}"
         if r.volume:
@@ -445,11 +479,11 @@ def _cite_article_vancouver(r: PrimoRecord) -> str:
 def _cite_book_vancouver(r: PrimoRecord) -> str:
     """Vancouver book citation."""
     authors = _authors_vancouver(r.display_authors)
-    title = r.title.rstrip(".")
+    title = _isbd(r.title.rstrip("."))
     publisher = _publisher_with_place(r)
     year = _year(r)
 
-    parts = [f"{_terminate(authors)} {title}."]
+    parts = [f"{_terminate(authors)} {_terminate(title)}"]
     if publisher:
         parts.append(f"{publisher}; {year}.")
     else:

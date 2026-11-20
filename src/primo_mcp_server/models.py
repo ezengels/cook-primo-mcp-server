@@ -533,19 +533,20 @@ class PrimoRecord(BaseModel):
     @property
     def publisher_without_place(self) -> str:
         """The publisher's name alone: addata.pub, else display.publisher
-        after its ISBD " : " place separator."""
+        after its first ISBD " : " (later ones separate further names, as
+        in "New York : Knopf : distributed by Random House")."""
         if self.publisher_name:
-            return self.publisher_name
-        _place, separator, name = self.publisher.rpartition(" : ")
-        return name.strip() if separator else self.publisher.strip()
+            return _imprint_part(self.publisher_name)
+        _place, separator, name = self.publisher.partition(" : ")
+        return _imprint_part(name if separator else self.publisher)
 
     @property
     def place_of_publication(self) -> str:
-        """addata.cop, else display.publisher before its ISBD " : "."""
+        """addata.cop, else display.publisher before its first ISBD " : "."""
         if self.publication_place:
-            return self.publication_place
-        place, separator, _name = self.publisher.rpartition(" : ")
-        return place.strip() if separator else ""
+            return _imprint_part(self.publication_place)
+        place, separator, _name = self.publisher.partition(" : ")
+        return _imprint_part(place) if separator else ""
 
     @property
     def cited_article_number(self) -> str:
@@ -556,12 +557,18 @@ class PrimoRecord(BaseModel):
         start page. MDPI numbers every article and files the number as the
         start page only, with no artnum, so its start page is taken as the
         article number (cdi_crossref_primary_10_3390_computation13020047).
+        So is an eLocator start page such as Wiley's "e12573"
+        (cdi_crossref_citationtrail_10_1111_jjns_12573), which is an article
+        number by form.
         """
         if self.end_page:
             return ""
         if self.article_number:
             return self.article_number
-        if self.start_page and self.doi.lower().startswith(_ARTICLE_NUMBER_DOI_PREFIXES):
+        if self.start_page and (
+            self.doi.lower().startswith(_ARTICLE_NUMBER_DOI_PREFIXES)
+            or _ELOCATOR_RE.fullmatch(self.start_page)
+        ):
             return self.start_page
         return ""
 
@@ -578,13 +585,31 @@ class PrimoRecord(BaseModel):
 
 
 def _page(value: str) -> str:
-    """A page value without the open-range dash Primo leaves on some ("47-")."""
-    return value.strip().rstrip("-\u2013").strip()
+    """A page value without the open-range dash Primo leaves on some ("47-"),
+    and none at all for Wiley's end page "n/a"."""
+    value = value.strip().rstrip("-\u2013").strip()
+    return "" if value.lower() == "n/a" else value
+
+
+def _imprint_part(value: str) -> str:
+    """A place or publisher without catalogue (ISBD) punctuation.
+
+    A multi-place imprint leaves the separator on the first place
+    ("Philadelphia ;" in alma990015940980108249) and lists places as
+    "Amsterdam ; New York"; a second name in a publisher statement follows
+    " : " ("Knopf : distributed by Random House", alma990007289870108249).
+    Both separators become "; ", as citation styles list several places
+    or publishers.
+    """
+    value = re.sub(r"\s+[;:]\s+", "; ", value.strip())
+    return value.rstrip(" ;:,/").strip()
 
 
 # DOI prefixes of publishers that number every article and file the number
 # as the start page: MDPI.
 _ARTICLE_NUMBER_DOI_PREFIXES = ("10.3390/",)
+# An eLocator, the "e"-prefixed article number of Wiley and PLOS journals.
+_ELOCATOR_RE = re.compile(r"e\d+")
 
 
 def _timelog_ms(data: dict, key: str) -> int | None:

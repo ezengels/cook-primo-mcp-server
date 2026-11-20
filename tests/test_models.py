@@ -222,6 +222,42 @@ class TestNameCleaning:
         assert record.start_page == "47"
         assert record.end_page == ""
 
+    def test_end_page_na_is_no_end_page(self):
+        # cdi_crossref_citationtrail_10_1111_jjns_12573 (Wiley): spage
+        # "e12573-", epage "n/a", which printed as "e12573-n/a".
+        doc = {
+            "pnx": {
+                "display": {"title": ["T"]},
+                "addata": {"spage": ["e12573-"], "epage": ["n/a"]},
+                "control": {"recordid": ["cdi_x"]},
+            }
+        }
+        record = PrimoRecord.from_api_doc(doc)
+        assert (record.start_page, record.end_page) == ("e12573", "")
+
+    def test_elocator_start_page_is_an_article_number(self):
+        record = PrimoRecord(start_page="e12573", doi="10.1111/jjns.12573")
+        assert record.cited_article_number == "e12573"
+
+    def test_place_and_publisher_lose_catalogue_punctuation(self):
+        # alma990015940980108249: addata.cop is "Philadelphia ;" (from a
+        # "Philadelphia ; London : G.W. Jacobs" imprint).
+        assert PrimoRecord(publication_place="Philadelphia ;").place_of_publication == (
+            "Philadelphia"
+        )
+        imprint = PrimoRecord(publisher="Amsterdam ; New York : Elsevier Scientific Pub. Co.")
+        assert imprint.place_of_publication == "Amsterdam; New York"
+        assert imprint.publisher_without_place == "Elsevier Scientific Pub. Co."
+
+    def test_second_name_in_a_publisher_statement_is_kept_cleanly(self):
+        # alma990007289870108249: "Knopf : distributed by Random House".
+        assert PrimoRecord(
+            publisher_name="Knopf : distributed by Random House"
+        ).publisher_without_place == "Knopf; distributed by Random House"
+        imprint = PrimoRecord(publisher="New York : Knopf : distributed by Random House")
+        assert imprint.place_of_publication == "New York"
+        assert imprint.publisher_without_place == "Knopf; distributed by Random House"
+
     def test_html_entities_from_primo_are_decoded(self):
         # alma9963950061708249 at Towson: Primo serves these names escaped.
         doc = {
