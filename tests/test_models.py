@@ -208,6 +208,26 @@ class TestNameCleaning:
         record = PrimoRecord.from_api_doc(doc)
         assert record.creators == ["American Institute of Aeronautics and Astronautics"]
 
+    def test_html_entities_from_primo_are_decoded(self):
+        # alma9963950061708249 at Towson: Primo serves these names escaped.
+        doc = {
+            "pnx": {
+                "display": {
+                    "title": ["Science &amp; engineering at the NNSA"],
+                    "contributor": [
+                        "Academia Nacional de Medicina de M&#233;xico"
+                        "$$QAcademia Nacional de Medicina de M&#233;xico"
+                    ],
+                },
+                "addata": {"addau": ["Academia de Ingenier&#237;a de M&#233;xico"]},
+                "control": {"recordid": ["alma9963950061708249"]},
+            }
+        }
+        record = PrimoRecord.from_api_doc(doc)
+        assert record.title == "Science & engineering at the NNSA"
+        assert record.contributors == ["Academia Nacional de Medicina de M\u00e9xico"]
+        assert record.additional_authors == ["Academia de Ingenier\u00eda de M\u00e9xico"]
+
     def test_parses_publisher_name_place_and_article_number(self):
         # Li & Koch 2022, JFM, as served at Towson.
         doc = {
@@ -328,6 +348,12 @@ class TestFulltextAvailability:
     def test_fulltext_multiple_is_available(self):
         record = PrimoRecord.from_api_doc(self._doc(["fulltext_multiple"]))
         assert record.fulltext_available is True
+
+    def test_fulltext_unknown_is_not_a_claim_of_access(self):
+        # OneSearch labels it "May be full-text"; the prefix test counted it
+        # as available.
+        record = PrimoRecord.from_api_doc(self._doc(["fulltext_unknown"]))
+        assert record.fulltext_available is False
 
     def test_mixed_tokens_with_positive_is_available(self):
         record = PrimoRecord.from_api_doc(

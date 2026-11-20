@@ -281,3 +281,14 @@ async def test_network_records_name_the_other_libraries(client):
     assert all(
         i.name and i.status for r in response.records for i in r.other_institutions
     )
+
+
+# 18
+async def test_transliterated_initials_survive_citation(client):
+    # Posudin's given name is romanised I + U+FE20 + U + U+FE21 (ALA-LC for
+    # Cyrillic "Yu"); the initials code used to keep only the "I".
+    record = await client.get_record("alma9963964836008249")
+
+    assert record is not None
+    assert record.display_authors[0].startswith("Posudin, I\ufe20U\ufe21.")
+    assert format_citation(record, "apa7").startswith("Posudin, I\ufe20U\ufe21. I. (2014).")

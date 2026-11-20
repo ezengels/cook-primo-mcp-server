@@ -7,6 +7,7 @@ everything into predictable types.
 
 from __future__ import annotations
 
+import html
 import re
 from typing import Any
 
@@ -30,11 +31,12 @@ def _first_or_empty(v: str | list[str] | None) -> str:
     return items[0] if items else ""
 
 
-# Tokens in delivery/fulltext that explicitly signal NO full text. Observed
-# live values are "fulltext", "fulltext_linktorsrc", "fulltext_multiple"
+# Tokens in delivery/fulltext that do not signal full text. Observed live
+# values are "fulltext", "fulltext_linktorsrc", "fulltext_multiple"
 # (available) and "no_fulltext" (not available); "fulltext_not_available"
-# is included defensively.
-_FULLTEXT_NEGATIVE = {"no_fulltext", "fulltext_not_available"}
+# is included defensively, and "fulltext_unknown" (OneSearch: "May be
+# full-text") is not a claim of access either.
+_FULLTEXT_NEGATIVE = {"no_fulltext", "fulltext_not_available", "fulltext_unknown"}
 
 
 def _fulltext_available(value: str | list[str] | None) -> bool:
@@ -136,10 +138,14 @@ def _strip_subfields(value: str) -> str:
 
     Primo encodes subfields as '<display>$$Q<normalised>$$...'. The display
     text precedes the first '$$'; purely coded values fall back to the
-    $$Q/$$V subfield content.
+    $$Q/$$V subfield content. HTML character references that Primo leaves
+    in some values ("M&#233;xico", "&amp;") are decoded.
     """
-    if not value or "$$" not in value:
-        return value.strip() if value else ""
+    if not value:
+        return ""
+    value = html.unescape(value)
+    if "$$" not in value:
+        return value.strip()
     head = value.split("$$", 1)[0].strip()
     if head:
         return head
@@ -553,6 +559,17 @@ class PrimoRecord(BaseModel):
         return m.group(0) if m else ""
 
 
+def _timelog_ms(data: dict, key: str) -> int | None:
+    """One timing from a /pnxs reply's timelog, in milliseconds, if present."""
+    timelog = data.get("timelog")
+    if not isinstance(timelog, dict):
+        return None
+    try:
+        return int(str(timelog.get(key)))
+    except ValueError:
+        return None
+
+
 class SearchInfo(BaseModel):
     """Pagination and total count info from a search response."""
 
@@ -562,6 +579,9 @@ class SearchInfo(BaseModel):
     # Whether Primo sent totalResultsPC at all; total_pc is 0 by default, so
     # this tells a reported zero from no report.
     pc_reported: bool = False
+    # Primo's own timing for the article-index part (timelog
+    # PC_SEARCH_TIME_TOTAL, milliseconds), logged when the index is slow.
+    pc_search_ms: int | None = None
     first: int = 0
     last: int = 0
 
@@ -646,6 +666,7 @@ class SearchResponse(BaseModel):
             total_local=info_raw.get("totalResultsLocal", 0),
             total_pc=info_raw.get("totalResultsPC", 0),
             pc_reported="totalResultsPC" in info_raw,
+            pc_search_ms=_timelog_ms(data, "PC_SEARCH_TIME_TOTAL"),
             first=info_raw.get("first", 0),
             last=info_raw.get("last", 0),
         )

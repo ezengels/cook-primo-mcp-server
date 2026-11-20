@@ -988,13 +988,13 @@ def _no_records_message(record_ids: list[str]) -> str:
 # Tool 7: primo_export
 # ---------------------------------------------------------------------------
 
-@mcp.tool()
+@mcp.tool(structured_output=False)
 @_tool_error_boundary("fetching records for export")
 async def primo_export(
     ctx: Context,
     record_ids: list[str],
     format: str = "bibtex",
-) -> str:
+) -> str | CallToolResult:
     """Export library records to reference manager formats.
 
     Args:
@@ -1003,9 +1003,9 @@ async def primo_export(
 
     Returns:
         Formatted export data ready for import into reference managers
-        (Zotero, Mendeley, EndNote). When some IDs matched no record, the
-        first line names them ("Not found (omitted below): ..."; a "%"
-        comment in BibTeX) and is not part of the RIS or CSV data.
+        (Zotero, Mendeley, EndNote). When some IDs matched no record, a
+        second, separate text block names them ("Not found (omitted from
+        the export): ..."), so the export block itself stays importable.
     """
     valid_formats = {"bibtex", "ris", "csv"}
     format = format.strip().lower()
@@ -1026,5 +1026,12 @@ async def primo_export(
         data = export_csv(records)
     if not missing:
         return data
-    note = f"Not found (omitted below): {', '.join(missing)}"
-    return f"% {note}\n\n{data}" if format == "bibtex" else f"{note}\n\n{data}"
+    # The note goes in a block of its own: inside the data it put a CSV's
+    # header row (and its BOM) on line 3, and RIS has no comment syntax.
+    note = (
+        f"Not found (omitted from the export): {', '.join(missing)}. No record "
+        f"matched {'this ID' if len(missing) == 1 else 'these IDs'}."
+    )
+    return CallToolResult(
+        content=[TextContent(type="text", text=data), TextContent(type="text", text=note)]
+    )

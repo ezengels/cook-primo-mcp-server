@@ -143,12 +143,13 @@ SERVER_INSTRUCTIONS = (
     + LIBRARIAN_POLICY_TEXT
 )
 
+# Claude Code cuts tool descriptions at 4,096 characters (its log said
+# "description truncated from 6673 to 4096 chars"). The argument notes exist
+# only here, so they come first; the policy prose, which SERVER_INSTRUCTIONS
+# also carries, comes last.
 PRIMO_SEARCH_DESCRIPTION = (
     "Search Towson University's Albert S. Cook Library (OneSearch) via Primo.\n\n"
-    + SEARCH_POLICY_TEXT
-    + """
-
-Args:
+    + """Args:
     query: Search terms (e.g. "machine learning entrepreneurship").
     field: Search field -- "any" (default), "title", "creator", "sub" (subject), "isbn", "issn", "oclcnum".
     scope: "everything" (default) for OneSearch's default search: Towson's catalogue, the other USMAI libraries' catalogues, and article-index (CDI) records Towson can access. "catalogue" for Towson's own holdings only (books, ebooks, journals, databases, videos; no article index). "books_videos" for the USMAI network catalogue: catalogue records from every USMAI library, no article index.
@@ -205,5 +206,7 @@ Returns:
     librarian recommendations are enabled, a matched referral or a routing
     decision request leads the result; any other librarian status follows
     the results as a "Recommended librarian help:" section.
+
 """
+    + SEARCH_POLICY_TEXT
 )

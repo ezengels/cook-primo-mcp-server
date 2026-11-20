@@ -1,5 +1,7 @@
 """Tests for citation formatting."""
 
+import pytest
+
 from primo_mcp_server.citations import format_citation, invalid_style_message
 from primo_mcp_server.models import PrimoRecord, SearchResponse
 
@@ -223,6 +225,39 @@ class TestCitationDetails:
         assert "vol. 952, article A16." in format_citation(record, "harvard")
         assert "vol. 952, Art. no. A16, 2022." in format_citation(record, "ieee")
         assert "2022;952:A16." in format_citation(record, "vancouver")
+
+    def test_ieee_book_joins_two_authors_with_and(self):
+        assert format_citation(self._kim_karrila(), "ieee").startswith(
+            "S. Kim and S. J. Karrila, *Microhydrodynamics"
+        )
+
+    @pytest.mark.parametrize(
+        "romanised",
+        [
+            # ALA-LC romanisation of Cyrillic "Yu": I + ligature halves + U
+            # (alma9963964836008249 at Towson), or the double inverted breve.
+            "I\ufe20U\ufe21",
+            "I\u0361U",
+        ],
+    )
+    def test_transliterated_initials_keep_their_ligature(self, romanised):
+        record = PrimoRecord(
+            title="Methods of measuring environmental parameters",
+            resource_type="book",
+            authors_structured=[f"Posudin, {romanised}. I."],
+            creation_date="2014",
+            publisher_name="Wiley",
+        )
+        assert format_citation(record, "apa7").startswith(f"Posudin, {romanised}. I. (2014).")
+        assert format_citation(record, "ieee").startswith(f"{romanised}. I. Posudin,")
+        assert format_citation(record, "vancouver").startswith(f"Posudin {romanised}I.")
+
+    def test_full_romanised_first_name_gives_the_ligature_initial(self):
+        record = PrimoRecord(
+            title="T", resource_type="book",
+            authors_structured=["Posudin, I\ufe20u\ufe21rii\u0306"], creation_date="2014",
+        )
+        assert format_citation(record, "apa7").startswith("Posudin, I\ufe20U\ufe21. (2014).")
 
     def test_publisher_without_structured_fields_drops_the_isbd_place(self):
         record = PrimoRecord(

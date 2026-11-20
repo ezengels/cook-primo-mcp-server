@@ -409,27 +409,33 @@ class PrimoClient:
         or when it reports 0 only after timing out, so the caller can say
         that articles are missing instead of implying that none exist.
         """
-        counts = [response.info.total_pc]
+        replies = [response]
         retries = 0
         while response.info.total_pc == -1 and retries < self._ARTICLE_INDEX_RETRIES:
             retries += 1
             await asyncio.sleep(self._ARTICLE_INDEX_RETRY_DELAY_SECONDS)
             data = await self._get("/pnxs", params=params)
             response = SearchResponse.from_api_response(data)
-            counts.append(response.info.total_pc)
+            replies.append(response)
         if response.info.total_pc == 0 and response.info.pc_reported:
             params = {**params, "disableCache": "true"}
             data = await self._get("/pnxs", params=params)
             response = SearchResponse.from_api_response(data)
-            counts.append(response.info.total_pc)
+            replies.append(response)
+        counts = [reply.info.total_pc for reply in replies]
         final_pc = response.info.total_pc
         timed_out = -1 in counts
         response.article_index_incomplete = final_pc == -1 or (timed_out and final_pc == 0)
-        if timed_out:
-            logger.warning(
-                "OneSearch article index was slow: totalResultsPC %s over %d requests%s",
+        if -1 in counts or 0 in counts:
+            # Evidence for the next failure: no failed reply has been
+            # captured yet, so it is unknown whether a cached failed 0
+            # repeats the timeout in its timelog (about 5,000 ms) or not.
+            logger.log(
+                logging.WARNING if response.article_index_incomplete else logging.INFO,
+                "OneSearch article index: totalResultsPC %s, article-index search "
+                "time (ms) %s%s",
                 counts,
-                len(counts),
+                [reply.info.pc_search_ms for reply in replies],
                 "; articles are missing from this result"
                 if response.article_index_incomplete
                 else "",

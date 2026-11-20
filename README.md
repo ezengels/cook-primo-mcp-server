@@ -151,7 +151,10 @@ made for it lives in the plugin's own folder and is removed with it.
 - Cached failures: Primo stores a failed article search as 0 articles, and a
   later repeat of the same search gets that 0 straight from its cache, with
   no `-1` to give it away. Any reported 0 is now checked once more with
-  `disableCache=true`, which makes Primo search again.
+  `disableCache=true`, which makes Primo search again. Searches that saw a
+  `-1` or a 0 are logged with Primo's own article-index search time, so the
+  next real failure shows whether that check works (it could not be watched
+  live: the article index answered throughout the tests).
 - Sorting: `/pnxs` reads `sort`, not `sortby`, so `sort_by` was silently
   ignored and every search came back in relevance order. The client now
   sends `sort` with Primo's codes (`date_d` for newest first, `date_a` for
@@ -165,14 +168,30 @@ made for it lives in the plugin's own folder and is removed with it.
   online", "Available in the library", "Not held here", "Check holdings"),
   worded after Towson's own OneSearch labels, instead of the delivery
   category ("Alma-P", "Alma-E"), which only says what kind of record it is.
+  The label table covers every status code in Towson's OneSearch labels,
+  including the `ext_*` codes of open-repository records such as MD-SOAR's.
   Records held by other USMAI libraries list them, with their status.
 - Citations and exports: co-authors catalogued as authors in `addata.addau`
   are kept (Kim and Karrila's *Microhydrodynamics* was cited under Kim
   alone); APA has its comma before "&" and article numbers ("Article A16");
   APA gives the publisher without its place, and the other styles give
   "Place: Publisher"; Chicago no longer doubles the period after initials;
-  BibTeX and RIS put the place in `address` and `CY`; `primo_cite` and
-  `primo_export` name any record IDs they could not find.
+  IEEE puts "and" between two book authors; initials keep romanisation
+  ligatures (Posudin's ALA-LC "I" + U+FE20 + "U" + U+FE21 was cut to "I.").
+  BibTeX, RIS and CSV give the place separately (`address`, `CY`, a Place
+  column) and put an article number where the pages go (`pages`, `SP`,
+  Pages). `primo_cite` and `primo_export` name any record IDs they could not
+  find; `primo_export` puts that note in a separate text block, so the
+  export stays importable as it is.
+- Smaller output fixes: HTML character references that Primo leaves in some
+  names and titles ("M&#233;xico") are decoded; a quoted phrase query is no
+  longer printed with doubled quotes; an invalid `sort_by` names the values
+  the tool description documents.
+- Tool description order: Claude Code cuts tool descriptions at 4,096
+  characters, which dropped the notes on `facet_filters`, `facet_exclusions`
+  and `clauses`. The `primo_search` description now gives the arguments
+  first and the policy prose last; the policy is also in the server
+  instructions.
 - Claude Code plugin: `.claude-plugin/plugin.json` starts the server with
   `uv run`, and `.claude-plugin/marketplace.json` makes this repository a
   one-plugin marketplace (see [The plugin](#the-plugin)). `uv.lock` is
@@ -212,9 +231,10 @@ relies on: scope and tab
 names, query separators, date and resource-type filters, facets under
 concurrent searches, guest-token record lookup for Alma and CDI records,
 citation and export on real records, autocomplete, date sorting, availability
-status, co-authors and article numbers on two known records, and the other
-USMAI libraries named on network records. They are skipped by default and
-never run in CI (about 40 requests per run):
+status, co-authors and article numbers on two known records, the other
+USMAI libraries named on network records, and transliterated initials in a
+citation. They are skipped by default and never run in CI (about 40
+requests per run):
 
 ```bash
 uv run pytest -m live -v

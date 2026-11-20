@@ -167,6 +167,18 @@ class TestFormatSearchResults:
         assert "Availability: Electronic resource: check availability in OneSearch" in output
         assert "Record ID: alma99908902601" in output
 
+    def test_quoted_query_is_not_quoted_twice(self):
+        record = PrimoRecord(record_id="cdi_1", title="T", context="PC")
+        found = SearchResponse.model_validate({"info": {"total": 4}, "records": [record]})
+        none = SearchResponse.model_validate({"info": {"total": 0}, "records": []})
+
+        hit = format_search_results(found, '"active compound particle"', config=_smu_config())
+        miss = format_search_results(none, '"active compound particle"', config=_smu_config())
+
+        assert 'Found 4 results for "active compound particle" (showing' in hit
+        assert 'No results found for "active compound particle".' in miss
+        assert '""' not in hit + miss
+
     def test_queries_attempted_link_carries_facet_filters(self):
         record = PrimoRecord(record_id="cdi_1", title="T", context="PC")
         response = SearchResponse.model_validate({"info": {"total": 1}, "records": [record]})
@@ -524,6 +536,11 @@ class TestAvailabilityLabel:
             (["available_in_maininstitution"], "Available in the library"),
             (["check_holdings"], "Check holdings (may be available)"),
             (["unavailable"], "Not available: checked out or otherwise unavailable"),
+            # MD-SOAR open-access records (alma9964182978708249); Towson's
+            # label table: "Available Online".
+            (["ext_not_restricted"], "Available online"),
+            (["ext_restrictedNoLink"], "Not available online"),
+            (["fulltext_unknown"], "Full text may be available"),
             (["some_new_code"], "some new code"),
         ],
     )

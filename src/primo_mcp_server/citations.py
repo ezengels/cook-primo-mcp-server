@@ -6,16 +6,45 @@ Supports APA 7th, Harvard, Chicago, IEEE, and Vancouver styles.
 from __future__ import annotations
 
 import re
+import unicodedata
 
 from primo_mcp_server.models import PrimoRecord
 
 
 _CJK_RE = re.compile(r"[\u3400-\u9fff\uf900-\ufaff]")
+# Combining marks that join a letter to the next one, as ALA-LC romanisation
+# writes Cyrillic "Yu" as I + U+FE20 + U + U+FE21, or as I + U+0361 + U: the
+# double diacritics U+035C-U+0362 and the left halves of the half marks.
+_JOINING_MARKS = frozenset(
+    [chr(code) for code in range(0x035C, 0x0363)] + ["\ufe20", "\ufe22", "\ufe24", "\ufe26"]
+)
 
 
 def _has_cjk(value: str) -> bool:
     """Return true when a name contains CJK characters."""
     return bool(_CJK_RE.search(value))
+
+
+def _initial(word: str) -> str:
+    """The initial of one given-name word, in capitals.
+
+    A letter keeps the combining marks after it, and a joining mark pulls in
+    the next letter too: Posudin's romanised given name (alma9963964836008249
+    at Towson), I + U+FE20 + U + U+FE21 + "rii", gives the whole I-U ligature
+    as its initial rather than "I".
+    """
+    letters: list[str] = []
+    i = 0
+    take_next = True
+    while i < len(word) and take_next:
+        letters.append(word[i].upper())
+        i += 1
+        take_next = False
+        while i < len(word) and unicodedata.combining(word[i]):
+            letters.append(word[i])
+            take_next = take_next or word[i] in _JOINING_MARKS
+            i += 1
+    return "".join(letters)
 
 
 def _authors_last_initials(creators: list[str]) -> list[str]:
@@ -29,7 +58,7 @@ def _authors_last_initials(creators: list[str]) -> list[str]:
         if len(parts) == 2:
             last = parts[0].strip()
             first = parts[1].strip()
-            initials = ". ".join(w[0].upper() for w in first.split() if w) + "."
+            initials = ". ".join(_initial(w) for w in first.split() if w) + "."
             result.append(f"{last}, {initials}")
         else:
             result.append(c.strip())
@@ -103,7 +132,7 @@ def _authors_ieee(creators: list[str]) -> list[str]:
         if len(parts) == 2:
             last = parts[0].strip()
             first = parts[1].strip()
-            initials = ". ".join(w[0].upper() for w in first.split() if w) + "."
+            initials = ". ".join(_initial(w) for w in first.split() if w) + "."
             result.append(f"{initials} {last}")
         else:
             result.append(c.strip())
@@ -121,7 +150,7 @@ def _authors_vancouver(creators: list[str]) -> str:
         if len(parts) == 2:
             last = parts[0].strip()
             first = parts[1].strip()
-            initials = "".join(w[0].upper() for w in first.split() if w)
+            initials = "".join(_initial(w) for w in first.split() if w)
             formatted.append(f"{last} {initials}")
         else:
             formatted.append(c.strip())
@@ -264,19 +293,22 @@ def _cite_book_chicago(r: PrimoRecord) -> str:
     return " ".join(parts)
 
 
+def _join_ieee(authors_list: list[str]) -> str:
+    """Join IEEE-style names: "A and B", "A, B, and C", "A et al."."""
+    if not authors_list:
+        return "Unknown author"
+    if len(authors_list) == 1:
+        return authors_list[0]
+    if len(authors_list) == 2:
+        return f"{authors_list[0]} and {authors_list[1]}"
+    if len(authors_list) == 3:
+        return ", ".join(authors_list[:-1]) + ", and " + authors_list[-1]
+    return authors_list[0] + " et al."
+
+
 def _cite_article_ieee(r: PrimoRecord) -> str:
     """IEEE article citation."""
-    authors_list = _authors_ieee(r.display_authors)
-    if not authors_list:
-        authors_str = "Unknown author"
-    elif len(authors_list) == 1:
-        authors_str = authors_list[0]
-    elif len(authors_list) == 2:
-        authors_str = f"{authors_list[0]} and {authors_list[1]}"
-    elif len(authors_list) == 3:
-        authors_str = ", ".join(authors_list[:-1]) + ", and " + authors_list[-1]
-    else:
-        authors_str = authors_list[0] + " et al."
+    authors_str = _join_ieee(_authors_ieee(r.display_authors))
 
     title = r.title.rstrip(".")
     journal = r.journal_title or ""
@@ -306,14 +338,8 @@ def _cite_article_ieee(r: PrimoRecord) -> str:
 
 
 def _cite_book_ieee(r: PrimoRecord) -> str:
-    """IEEE book citation."""
-    authors_list = _authors_ieee(r.display_authors)
-    if not authors_list:
-        authors_str = "Unknown author"
-    else:
-        authors_str = ", ".join(authors_list[:3])
-        if len(authors_list) > 3:
-            authors_str += " et al."
+    """IEEE book citation (authors joined as for articles)."""
+    authors_str = _join_ieee(_authors_ieee(r.display_authors))
 
     title = r.title.rstrip(".")
     publisher = _publisher_with_place(r)

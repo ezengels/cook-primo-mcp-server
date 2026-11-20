@@ -3,6 +3,8 @@
 from types import SimpleNamespace
 import json
 
+import pytest
+
 from primo_mcp_server.config import PrimoConfig
 from primo_mcp_server.models import PrimoRecord, SearchResponse
 from primo_mcp_server.server import (
@@ -1021,15 +1023,24 @@ async def test_primo_cite_with_nothing_found_names_the_ids():
     assert output.startswith("No records found for: missing_1, missing_2")
 
 
-async def test_primo_export_names_ids_it_could_not_find():
-    bibtex = await primo_export(_fake_context(), ["alma123", "missing_1"], format="bibtex")
-    ris = await primo_export(_fake_context(), ["alma123", "missing_1"], format="ris")
+@pytest.mark.parametrize(
+    ("format", "start"), [("bibtex", "@book{"), ("ris", "TY  - BOOK"), ("csv", "\ufeffRecord ID,")]
+)
+async def test_primo_export_names_missing_ids_outside_the_export_data(format, start):
+    # The export block stays importable as it is: a note line inside it put
+    # a CSV's header (and its BOM) on line 3, and RIS has no comment syntax.
+    result = await primo_export(_fake_context(), ["alma123", "missing_1"], format=format)
 
-    # A BibTeX comment line, so the file still imports.
-    assert bibtex.startswith("% Not found (omitted below): missing_1")
-    assert "@book{" in bibtex
-    assert ris.startswith("Not found (omitted below): missing_1")
-    assert "TY  - BOOK" in ris
+    data, note = (block.text for block in result.content)
+    assert data.startswith(start)
+    assert "missing_1" not in data
+    assert note.startswith("Not found (omitted from the export): missing_1")
+
+
+async def test_primo_export_without_missing_ids_returns_the_export_alone():
+    output = await primo_export(_fake_context(), ["alma123"], format="csv")
+
+    assert output.startswith("\ufeffRecord ID,")
 
 
 async def test_primo_search_link_carries_facet_filters():
@@ -1047,3 +1058,16 @@ async def test_primo_search_link_carries_facet_filters():
     transparency = result.structuredContent["search_transparency"]
     url = transparency["queries_attempted"][0]["url"]
     assert "facet=topic%2Cinclude%2CEconomics" in url
+
+
+def test_search_description_documents_every_argument_within_claude_codes_limit():
+    # Claude Code cuts tool descriptions at 4,096 characters; the app log
+    # showed "description truncated from 6673 to 4096 chars", which dropped
+    # the notes on facet_filters, facet_exclusions and clauses. The policy
+    # prose is also served in the server instructions, so it goes last.
+    from primo_mcp_server.policy import PRIMO_SEARCH_DESCRIPTION
+
+    visible = PRIMO_SEARCH_DESCRIPTION[:4096]
+    for argument in ("facet_filters:", "facet_exclusions:", "clauses:", "Returns:"):
+        assert argument in visible, argument
+    assert visible.index("clauses:") < visible.index("Returns:")

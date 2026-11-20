@@ -142,13 +142,16 @@ def _valid_options(aliases: dict[str, str]) -> str:
     return ", ".join(sorted(set(aliases.values())))
 
 
-def _normalise_alias(value: str, aliases: dict[str, str], label: str) -> str:
+def _normalise_alias(
+    value: str, aliases: dict[str, str], label: str, options: str | None = None
+) -> str:
+    """Resolve an alias; options overrides the error's list of valid values."""
     key = _key(value)
     try:
         return aliases[key]
     except KeyError as e:
         raise ValueError(
-            f'Invalid {label} "{value}". Use one of: {_valid_options(aliases)}.'
+            f'Invalid {label} "{value}". Use one of: {options or _valid_options(aliases)}.'
         ) from e
 
 
@@ -163,8 +166,14 @@ def normalise_search_field(field: str) -> str:
 
 
 def normalise_sort_by(sort_by: str) -> str:
-    """Resolve caller-friendly sort aliases to Primo sort names."""
-    return _normalise_alias(sort_by, _SORT_ALIASES, "sort_by")
+    """Resolve caller-friendly sort aliases to Primo sort names.
+
+    The error names the values the tool description documents, not Primo's
+    codes (which are accepted too).
+    """
+    return _normalise_alias(
+        sort_by, _SORT_ALIASES, "sort_by", "rank, date, oldest, title, author"
+    )
 
 
 def normalise_resource_type(resource_type: str | None) -> str | None:

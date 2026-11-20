@@ -64,31 +64,62 @@ def _format_preview(values: list[str], max_items: int = 4) -> str:
 # Primo's availability status codes (doc-level delivery.availability), in
 # words that follow the labels Towson's OneSearch shows for them in its
 # public label table (delivery.code.*): "Available Online", "Check request
-# options", "Check holdings", "Not Available". Unknown codes are shown with
-# spaces for underscores.
+# options", "Check holdings", "Not Available". Keys are lowercase (Primo
+# writes some in camel case, e.g. ext_restrictedNoLink). Unknown codes are
+# shown with spaces for underscores.
 _AVAILABILITY_LABELS = {
     "fulltext": "Full text available",
     "fulltext_linktorsrc": "Full text available",
     "fulltext_multiple": "Full text available",
+    "fulltext_topic": "Full text available",
+    "fulltext_linktorsrc_topic": "Full text available",
+    "fulltext_newspaper": "Full text available",
+    "fulltext_linktorsrc_newspaper": "Full text available",
+    "fulltext_unknown": "Full text may be available",
     "not_restricted": "Available online",
     "no_fulltext": "No full text access",
     "no_fulltext_linktorsrc": "No full text access",
+    "no_fulltext_linktorsrc_nft": "No full text access",
+    "no_fulltext_newspaper": "No full text access",
+    "no_fulltext_linktorsrc_newspaper": "No full text access",
+    # Records from outside sources such as MD-SOAR, Maryland's open
+    # repository (alma9964182978708249 at Towson).
+    "ext_not_restricted": "Available online",
+    "ext_not_restricted_and_physical": "Available online; check holdings for print copies",
+    "ext_restrictednolabel": "Link to an external resource",
+    "ext_restrictednolink": "Not available online",
+    "ext_restrictednolink_and_physical": "Not available online; check holdings for print copies",
+    "ext_restrictedwithlink": "Check the link for availability",
+    "ext_restrictedwithlink_and_physical": (
+        "Check the link for availability; check holdings for print copies"
+    ),
+    "available": "Available",
     "available_in_maininstitution": "Available in the library",
     "available_in_my_institution": "Available in the library",
     "available_in_library": "Available in the library",
     "available_in_institution": "Available (see locations)",
+    "available_in_other_institution": "Available at another library",
+    "does_not_exist_in_my_institution_available": "Available at another library",
     "check_holdings": "Check holdings (may be available)",
     "check_holdings_in_maininstitution": "Check holdings (may be available)",
     "check_holdings_in_library": "Check holdings (may be available)",
     "check_holdings_in_institution": "Check holdings (may be available)",
     "does_not_exist_in_maininstitution": "Check holdings (may be available)",
+    "does_not_exist_in_my_institution_check_holdings": "Check holdings at another library",
     "unavailable": "Not available: checked out or otherwise unavailable",
     "unavailable_in_maininstitution": "Checked out",
+    "unavailable_in_maininstitution_nomore": "Checked out",
+    "unavailable_in_maininstitution_more": "Check holdings (may be available)",
     "unavailable_in_library": "Checked out",
     "unavailable_in_institution": "Checked out",
+    "unavailable_in_all_institutions": "Checked out",
+    "does_not_exist_in_my_institution_unavailable": "Checked out at another library",
+    "not_available": "Not available",
     "no_inventory": (
         'Not held here: no copy or online access (OneSearch: "Check request options")'
     ),
+    "no_services": "No services are available for this record",
+    "citation_available": "Citation available",
     "may_be_restricted": "Online access may be restricted",
     "restricted": "Restricted online access",
 }
@@ -335,6 +366,15 @@ def build_search_url(
     return f"{app_base}/search?{urlencode(params)}"
 
 
+def _quoted(query: str) -> str:
+    """The query in double quotes, unless it carries quotes of its own.
+
+    A phrase search arrives already quoted ('"active compound particle"'),
+    and wrapping it again printed doubled quotes.
+    """
+    return query if '"' in query else f'"{query}"'
+
+
 def _markdown_link_text(text: str) -> str:
     """Escape Markdown link text while preserving Unicode metadata."""
     return text.replace("\\", "\\\\").replace("[", "\\[").replace("]", "\\]")
@@ -504,7 +544,7 @@ def format_search_results(
     )
 
     if not response.records:
-        lines = [*banner, f'No results found for "{query}".', "", *incomplete_note]
+        lines = [*banner, f"No results found for {_quoted(query)}.", "", *incomplete_note]
         lines.extend(query_links)
         lines.extend(
             [
@@ -526,7 +566,7 @@ def format_search_results(
 
     lines = [
         *banner,
-        f'Found {total} results for "{query}" (showing {showing_start}-{showing_end})',
+        f"Found {total} results for {_quoted(query)} (showing {showing_start}-{showing_end})",
         "",
         *incomplete_note,
     ]

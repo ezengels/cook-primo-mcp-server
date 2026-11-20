@@ -42,6 +42,20 @@ def _bibtex_key(record: PrimoRecord) -> str:
     return f"{first_author}{year}{title_word}" or "unknown"
 
 
+def _pages(record: PrimoRecord, dash: str) -> str:
+    """Page range, or the article number where a journal numbers articles.
+
+    Reference managers read an article number ("A16") from the pages field
+    (BibTeX pages, RIS SP), which is also where publishers' own exports for
+    article-numbered journals put it.
+    """
+    if record.start_page:
+        if record.end_page:
+            return f"{record.start_page}{dash}{record.end_page}"
+        return record.start_page
+    return record.article_number
+
+
 def _bibtex_escape(value: str) -> str:
     """Escape special BibTeX characters."""
     replacements = {
@@ -119,10 +133,8 @@ def export_bibtex(records: list[PrimoRecord]) -> str:
             fields.append(f"  volume = {{{record.volume}}}")
         if record.issue:
             fields.append(f"  number = {{{record.issue}}}")
-        if record.start_page:
-            pages = record.start_page
-            if record.end_page:
-                pages += f"--{record.end_page}"
+        pages = _pages(record, "--")
+        if pages:
             fields.append(f"  pages = {{{pages}}}")
         # BibTeX keeps the place in its own field; display.publisher joins
         # them ("Stoneham, Massachusetts : Butterworth-Heinemann").
@@ -194,9 +206,8 @@ def export_ris(records: list[PrimoRecord]) -> str:
             _append_ris(lines, "VL", record.volume)
         if record.issue:
             _append_ris(lines, "IS", record.issue)
-        if record.start_page:
-            _append_ris(lines, "SP", record.start_page)
-        if record.end_page:
+        _append_ris(lines, "SP", record.start_page or record.article_number)
+        if record.start_page and record.end_page:
             _append_ris(lines, "EP", record.end_page)
 
         _append_ris(lines, "PB", record.publisher_without_place)
@@ -245,6 +256,7 @@ def export_csv(records: list[PrimoRecord]) -> str:
         "ISBN",
         "ISSN",
         "Publisher",
+        "Place",
         "Subjects",
         "Peer-Reviewed",
         "Language",
@@ -253,9 +265,6 @@ def export_csv(records: list[PrimoRecord]) -> str:
     for record in records:
         authors = record.display_authors
         year = record.year
-        pages = record.start_page
-        if pages and record.end_page:
-            pages += f"-{record.end_page}"
 
         writer.writerow([
             record.record_id,
@@ -266,11 +275,12 @@ def export_csv(records: list[PrimoRecord]) -> str:
             record.journal_title,
             record.volume,
             record.issue,
-            pages or "",
+            _pages(record, "-"),
             record.doi,
             "; ".join(record.isbn),
             "; ".join(record.issn),
-            record.publisher,
+            record.publisher_without_place,
+            record.place_of_publication,
             "; ".join(record.subjects),
             "Yes" if record.peer_reviewed else "No",
             record.language,

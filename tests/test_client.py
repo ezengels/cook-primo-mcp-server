@@ -189,6 +189,16 @@ class TestSearchRequestFilters:
         assert params["sort"] == expected
         assert "sortby" not in params
 
+    async def test_invalid_sort_lists_the_documented_names(self):
+        # The error listed Primo's codes (date_a, date_d), not the names the
+        # tool description gives callers.
+        async with httpx.AsyncClient(base_url="https://example.test") as http_client:
+            client = PrimoClient(http_client, _config())
+            with pytest.raises(
+                PrimoAPIError, match=r"Use one of: rank, date, oldest, title, author\."
+            ):
+                await client.search("hydrodynamics", sort_by="nonsense_sort")
+
     async def test_coded_facet_values_accept_the_landscape_labels(self):
         # The result landscape prints rtype "review_article" as "review
         # article" and tlevel "online_resources" as "online"; a value copied
@@ -975,6 +985,29 @@ class TestArticleIndexRetry:
 
         assert pnxs_calls == 1
         assert response.article_index_incomplete is False
+
+    async def test_slow_article_index_is_logged_with_primo_search_times(
+        self, monkeypatch, caplog
+    ):
+        # No failed reply has been captured yet; Primo's own timelog says how
+        # long the article-index part took, so log it to settle, next time
+        # the index fails, how a cached failure looks.
+        replies = iter([(-1, "5012"), (42, "210")])
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path.endswith("/facets"):
+                return httpx.Response(200, json=_FACETS_PAYLOAD)
+            pc, ms = next(replies)
+            payload = _pc_payload(pc, "cdi_1")
+            payload["timelog"] = {"PC_SEARCH_TIME_TOTAL": ms}
+            return httpx.Response(200, json=payload)
+
+        with caplog.at_level("INFO", logger="primo_mcp_server.client"):
+            await self._run(handler, monkeypatch)
+
+        message = next(r.getMessage() for r in caplog.records if "article index" in r.getMessage())
+        assert "totalResultsPC [-1, 42]" in message
+        assert "[5012, 210]" in message
 
     async def test_cached_zero_with_a_failing_article_index_is_flagged(self, monkeypatch):
         replies = iter([0, -1])
