@@ -8,7 +8,7 @@ default (pyproject addopts) and never run in CI:
     uv run pytest -m live -v
 
 They use the Towson defaults regardless of the local .env (PRIMO_*
-environment variables still override), run sequentially, send about 30
+environment variables still override), run sequentially, send about 40
 requests, and assert properties rather than exact counts, since holdings
 change daily. The queries were adapted from the SMU originals: "Maryland"
 replaces "Singapore", and "Douglass, Frederick" replaces "Lee, Kuan Yew".
@@ -238,3 +238,46 @@ async def test_suggest_returns_completions(client):
     suggestions = await client.suggest("entrepre")
 
     assert suggestions
+
+
+# 15
+async def test_date_sort_returns_newest_first(client):
+    # /pnxs ignored sortby=date (relevance order came back: 1895, 1983,
+    # 1982, ...) until the client sent sort=date_d (2026-11-19). Primo sorts
+    # on its own sort date, which can differ from the display year (a 2025
+    # record sat among 2026 ones), so require the page to cluster at the
+    # newest years rather than strict order.
+    response = await client.search(
+        "hydrodynamics", scope="catalogue", sort_by="date", limit=10
+    )
+
+    years = [int(r.year) for r in response.records if r.year]
+    assert len(years) >= 5
+    assert min(years) >= max(years) - 2, years
+
+
+# 16
+async def test_known_items_carry_status_co_author_and_article_number(client):
+    # The two records the 2026-11-19 plugin test report named.
+    book = await client.get_record("alma9964140532108249")  # Kim & Karrila
+    article = await client.get_record("cdi_crossref_primary_10_1017_jfm_2022_891")
+
+    assert book is not None and article is not None
+    assert book.availability, "no delivery.availability status code"
+    assert len(book.display_authors) == 2, book.display_authors
+    assert book.publisher_name and book.publication_place
+    assert article.article_number == "A16"
+    assert "Article A16" in format_citation(article, "apa7")
+
+
+# 17
+async def test_network_records_name_the_other_libraries(client):
+    # Towson's view lists, for USMAI network records, the member libraries
+    # that hold them (almaInstitutionsList); that is how a caller can say a
+    # book is at UMCP rather than at Towson.
+    response = await client.search("hydrodynamics", scope="books_videos", limit=10)
+
+    assert any(r.other_institutions for r in response.records)
+    assert all(
+        i.name and i.status for r in response.records for i in r.other_institutions
+    )

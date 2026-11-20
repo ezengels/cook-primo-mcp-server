@@ -147,3 +147,90 @@ class TestYearWithoutJournal:
         r.journal_title = "J. Test"
         cite = format_citation(r, "ieee")
         assert "2021" in cite and "J. Test" in cite
+
+
+class TestCitationDetails:
+    """Defects found by the 2026-11-19 plugin test against live Towson records."""
+
+    @staticmethod
+    def _li_koch() -> PrimoRecord:
+        # cdi_crossref_primary_10_1017_jfm_2022_891
+        return PrimoRecord(
+            record_id="cdi_crossref_primary_10_1017_jfm_2022_891",
+            title="Dynamics of a self-propelled compound droplet",
+            resource_type="article",
+            authors_structured=["Li, Gaojin", "Koch, Donald L."],
+            creation_date="2022-12-10",
+            journal_title="Journal of fluid mechanics",
+            volume="952",
+            article_number="A16",
+            doi="10.1017/jfm.2022.891",
+            publisher="Cambridge, UK: Cambridge University Press",
+            publisher_name="Cambridge University Press",
+            publication_place="Cambridge, UK",
+        )
+
+    @staticmethod
+    def _kim_karrila() -> PrimoRecord:
+        # alma9964140532108249 (the publisher's misspelling is the record's)
+        return PrimoRecord(
+            record_id="alma9964140532108249",
+            title="Microhydrodynamics : principles and selected applications",
+            resource_type="book",
+            authors_structured=["Kim, Sangtae"],
+            co_authors=["Karrila, Seppo J."],
+            creation_date="1991",
+            publisher="Stoneham, Massachusetts : Butterworth-Heinemarm",
+            publisher_name="Butterworth-Heinemarm",
+            publication_place="Stoneham, Massachusetts",
+        )
+
+    def test_apa_puts_a_comma_before_the_ampersand_for_two_authors(self):
+        assert format_citation(self._li_koch(), "apa7").startswith(
+            "Li, G., & Koch, D. L. (2022)."
+        )
+
+    def test_apa_cites_the_article_number(self):
+        assert "*Journal of fluid mechanics*, *952*, Article A16." in format_citation(
+            self._li_koch(), "apa7"
+        )
+
+    def test_apa_book_names_both_authors_and_the_publisher_without_its_place(self):
+        assert format_citation(self._kim_karrila(), "apa7") == (
+            "Kim, S., & Karrila, S. J. (1991). "
+            "*Microhydrodynamics : principles and selected applications*. "
+            "Butterworth-Heinemarm."
+        )
+
+    def test_chicago_has_no_double_period_after_initials(self):
+        citation = format_citation(self._li_koch(), "chicago")
+        assert citation.startswith('Li, G. and Koch, D. L. "Dynamics')
+        assert ".." not in citation
+
+    def test_chicago_book_gives_place_and_publisher(self):
+        assert format_citation(self._kim_karrila(), "chicago").endswith(
+            "Stoneham, Massachusetts: Butterworth-Heinemarm, 1991."
+        )
+
+    def test_harvard_joins_two_authors_with_and(self):
+        assert format_citation(self._li_koch(), "harvard").startswith(
+            "Li, G. and Koch, D. L. (2022)"
+        )
+
+    def test_other_styles_cite_the_article_number(self):
+        record = self._li_koch()
+        assert "952 (2022): A16." in format_citation(record, "chicago")
+        assert "vol. 952, article A16." in format_citation(record, "harvard")
+        assert "vol. 952, Art. no. A16, 2022." in format_citation(record, "ieee")
+        assert "2022;952:A16." in format_citation(record, "vancouver")
+
+    def test_publisher_without_structured_fields_drops_the_isbd_place(self):
+        record = PrimoRecord(
+            title="Fluid mechanics", resource_type="book",
+            authors_structured=["Batchelor, G. K."], creation_date="2000",
+            publisher="Cambridge : Cambridge University Press",
+        )
+        assert format_citation(record, "apa7").endswith("Cambridge University Press.")
+        assert format_citation(record, "chicago").endswith(
+            "Cambridge: Cambridge University Press, 2000."
+        )

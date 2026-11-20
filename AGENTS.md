@@ -19,8 +19,13 @@ This is the canonical agent guidance file for this fork.
   lag the search by a second (retried once), and an "everything" search can
   return before the article index (CDI) has answered, with
   `totalResultsPC` -1 (repeated up to twice, then flagged as
-  `article_index_incomplete` so the output says articles are missing). The
-  local-only scopes always report -1, so only the combined scope retries.
+  `article_index_incomplete` so the output says articles are missing). Primo
+  also caches a failed article search as 0, so a reported 0 is checked once
+  with `disableCache=true`. The local-only scopes always report -1, so only
+  the combined scope retries.
+- **Primo parameter names:** `/pnxs` sorts by `sort` (rank, date_d, date_a,
+  title, author) and ignores `sortby`, which is the web UI's name for the
+  same codes. The web UI reads facets as `facet=<name>,<include|exclude>,<value>`.
 - **Plugin environment:** uv's `.venv` lives in each version's own plugin
   folder. A venv shared across versions in `${CLAUDE_PLUGIN_DATA}` broke the
   first start after every update on Windows (see README, "The plugin").

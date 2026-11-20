@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+import logging
 import time
 from contextlib import asynccontextmanager
 from typing import Any, AsyncIterator
@@ -25,6 +26,9 @@ from primo_mcp_server.query import (
     normalise_sort_by,
     single_query,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 def _normalise_alma_id(record_id: str) -> str:
@@ -261,7 +265,9 @@ class PrimoClient:
             scope: "everything" for local + PCI, "catalogue" for local only,
                 "books_videos" for the third configured tab/scope (at
                 Towson, the USMAI network catalogue).
-            sort_by: rank, date, or title.
+            sort_by: rank (relevance), date (newest first), oldest, title,
+                or author; sent to Primo as its sort codes (rank, date_d,
+                date_a, title, author).
             limit: Number of results (capped at max_results_per_request).
             offset: Pagination offset.
             resource_type: Filter by type (books, articles, journals, etc.).
@@ -326,7 +332,9 @@ class PrimoClient:
             "offset": str(offset),
             "limit": str(limit),
             "lang": cfg.language,
-            "sortby": sort_by,
+            # /pnxs reads "sort"; "sortby" is the web UI's name and the API
+            # ignores it (see query._SORT_ALIASES).
+            "sort": sort_by,
             "pcAvailability": "true" if include_unavailable else "false",
         }
 
@@ -354,7 +362,8 @@ class PrimoClient:
             data = await self._get("/pnxs", params=params)
             response = SearchResponse.from_api_response(data)
             if canonical_scope == "everything":
-                response = await self._wait_for_article_index(params, response)
+                # May end on an uncached repeat; facets must follow that one.
+                response, params = await self._wait_for_article_index(params, response)
             if include_facets and response.records:
                 response.facets = await self._fetch_facets(
                     params, total=response.info.total
@@ -376,30 +385,56 @@ class PrimoClient:
     # parameters. So a 0 that follows a -1 is not evidence that no
     # articles exist. The local-only scopes always report -1, so only the
     # combined scope retries.
+    #
+    # The cached failure outlives the call that caused it: a later repeat of
+    # the same search gets the stored 0 straight away, with no -1 to warn of
+    # it. Any 0 is therefore checked once with disableCache=true, which
+    # makes Primo search again: in the first plugin test report (2026-11-19)
+    # a disableCache=true request found 87 articles for a query whose cached
+    # requests had returned none, and failing uncached requests answered -1,
+    # never 0. Retries after a -1 stay cached on purpose, because the cache
+    # is where a CDI answer that arrived late is waiting.
     _ARTICLE_INDEX_RETRIES = 2
     _ARTICLE_INDEX_RETRY_DELAY_SECONDS = 1.0
 
     async def _wait_for_article_index(
         self, params: dict[str, Any], response: SearchResponse
-    ) -> SearchResponse:
+    ) -> tuple[SearchResponse, dict[str, Any]]:
         """Repeat a combined-scope search until CDI has answered.
 
         Called with the search gate held, so a later /facets call reads the
-        final search. Marks the response article_index_incomplete when CDI
-        still has not answered after _ARTICLE_INDEX_RETRIES repeats, or when
-        it reports 0 only after timing out, so the caller can say that
-        articles are missing instead of implying that none exist.
+        final search; returns that search's response and parameters. Marks
+        the response article_index_incomplete when CDI still has not
+        answered after _ARTICLE_INDEX_RETRIES repeats and the uncached check,
+        or when it reports 0 only after timing out, so the caller can say
+        that articles are missing instead of implying that none exist.
         """
-        timed_out = response.info.total_pc == -1
+        counts = [response.info.total_pc]
         retries = 0
         while response.info.total_pc == -1 and retries < self._ARTICLE_INDEX_RETRIES:
             retries += 1
             await asyncio.sleep(self._ARTICLE_INDEX_RETRY_DELAY_SECONDS)
             data = await self._get("/pnxs", params=params)
             response = SearchResponse.from_api_response(data)
+            counts.append(response.info.total_pc)
+        if response.info.total_pc == 0 and response.info.pc_reported:
+            params = {**params, "disableCache": "true"}
+            data = await self._get("/pnxs", params=params)
+            response = SearchResponse.from_api_response(data)
+            counts.append(response.info.total_pc)
         final_pc = response.info.total_pc
+        timed_out = -1 in counts
         response.article_index_incomplete = final_pc == -1 or (timed_out and final_pc == 0)
-        return response
+        if timed_out:
+            logger.warning(
+                "OneSearch article index was slow: totalResultsPC %s over %d requests%s",
+                counts,
+                len(counts),
+                "; articles are missing from this result"
+                if response.article_index_incomplete
+                else "",
+            )
+        return response, params
 
     # Primo computes facets for a large result set in the background, so a
     # /facets call made straight after the /pnxs search can return an empty
@@ -608,13 +643,14 @@ class PrimoClient:
 
     _GET_RECORDS_CONCURRENCY = 4
 
-    async def get_records(self, record_ids: list[str]) -> list[PrimoRecord]:
-        """Fetch multiple records by their IDs, preserving input order.
+    async def lookup_records(self, record_ids: list[str]) -> list[PrimoRecord | None]:
+        """Fetch multiple records by their IDs, one slot per ID, in order.
 
-        Lookups run concurrently under a small bound (each get_record can
-        fan out into a token fetch plus several fallback searches). IDs that
-        resolve to no record are dropped. The first lookup error is raised
-        only after every lookup has settled, so no request is left running.
+        An ID that resolves to no record keeps its slot as None, so callers
+        can name the IDs that failed. Lookups run concurrently under a small
+        bound (each get_record can fan out into a token fetch plus several
+        fallback searches). The first lookup error is raised only after
+        every lookup has settled, so no request is left running.
         """
         semaphore = asyncio.Semaphore(self._GET_RECORDS_CONCURRENCY)
 
@@ -628,7 +664,15 @@ class PrimoClient:
         for result in results:
             if isinstance(result, BaseException):
                 raise result
-        return [record for record in results if record is not None]
+        return list(results)
+
+    async def get_records(self, record_ids: list[str]) -> list[PrimoRecord]:
+        """Fetch multiple records by their IDs, preserving input order.
+
+        IDs that resolve to no record are dropped; use lookup_records to
+        learn which ones.
+        """
+        return [record for record in await self.lookup_records(record_ids) if record]
 
     async def _get(self, path: str, params: dict[str, Any]) -> dict:
         """GET from the Primo API, retrying transient failures.

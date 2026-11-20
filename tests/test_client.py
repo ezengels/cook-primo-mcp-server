@@ -154,8 +154,68 @@ class TestSearchRequestFilters:
 
         params = requests[0].url.params
         assert params["q"] == "sub,contains,Singapore"
-        assert params["sortby"] == "date"
+        assert params["sort"] == "date_d"
         assert params["qInclude"] == "facet_rtype,exact,books"
+
+    @pytest.mark.parametrize(
+        ("sort_by", "expected"),
+        [
+            ("rank", "rank"),
+            ("relevance", "rank"),
+            ("date", "date_d"),
+            ("oldest", "date_a"),
+            ("title", "title"),
+            ("author", "author"),
+        ],
+    )
+    async def test_sort_is_sent_as_primo_sort_parameter(self, sort_by, expected):
+        # /pnxs reads "sort" (rank, date_d, date_a, title, author) and
+        # ignores "sortby": observed at Towson on 2026-11-19, sortby=date
+        # and sortby=title both came back in relevance order.
+        requests: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            requests.append(request)
+            return _empty_response()
+
+        async with httpx.AsyncClient(
+            base_url="https://example.test/primaws/rest/pub",
+            transport=httpx.MockTransport(handler),
+        ) as http_client:
+            client = PrimoClient(http_client, _config())
+            await client.search("hydrodynamics", scope="catalogue", sort_by=sort_by)
+
+        params = requests[0].url.params
+        assert params["sort"] == expected
+        assert "sortby" not in params
+
+    async def test_coded_facet_values_accept_the_landscape_labels(self):
+        # The result landscape prints rtype "review_article" as "review
+        # article" and tlevel "online_resources" as "online"; a value copied
+        # from it must still filter instead of silently matching nothing.
+        requests: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            requests.append(request)
+            return _empty_response()
+
+        async with httpx.AsyncClient(
+            base_url="https://example.test/primaws/rest/pub",
+            transport=httpx.MockTransport(handler),
+        ) as http_client:
+            client = PrimoClient(http_client, _config())
+            await client.search(
+                "fluid dynamics",
+                scope="catalogue",
+                facet_filters={"topic": "Fluid Dynamics", "availability": "online"},
+                facet_exclusions={"rtype": "review article"},
+            )
+
+        params = requests[0].url.params
+        assert params["qInclude"] == (
+            "facet_topic,exact,Fluid Dynamics|,|facet_tlevel,exact,online_resources"
+        )
+        assert params["qExclude"] == "facet_rtype,exact,review_article"
 
     async def test_plain_query_strips_clause_separators(self):
         requests: list[httpx.Request] = []
@@ -812,11 +872,78 @@ class TestArticleIndexRetry:
         assert response.article_index_incomplete is True
         assert [r.record_id for r in response.records] == ["alma1"]
 
-    @pytest.mark.parametrize("sequence", [[-1, 0], [-1, -1, 0]])
+    @pytest.mark.parametrize("sequence", [[-1, 0, 0], [-1, -1, 0, 0]])
     async def test_zero_after_a_timeout_is_not_trusted(self, monkeypatch, sequence):
         # When CDI fails outright Primo caches the failed part as 0; seen
-        # live as -1, -1, 0 for topics with thousands of articles.
+        # live as -1, -1, 0 for topics with thousands of articles. The zero
+        # is re-checked without the cache (last reply), and a zero that
+        # still follows a timeout is not taken as "no articles".
         replies = iter(sequence)
+        requests: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            requests.append(request)
+            if request.url.path.endswith("/facets"):
+                return httpx.Response(200, json=_FACETS_PAYLOAD)
+            return httpx.Response(200, json=_pc_payload(next(replies), "alma1"))
+
+        response = await self._run(handler, monkeypatch)
+
+        pnxs = [r for r in requests if r.url.path.endswith("/pnxs")]
+        assert len(pnxs) == len(sequence)
+        assert pnxs[-1].url.params["disableCache"] == "true"
+        assert response.article_index_incomplete is True
+
+    async def test_zero_after_a_timeout_recovers_when_uncached_search_finds_articles(
+        self, monkeypatch
+    ):
+        replies = iter([-1, 0, 7])
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path.endswith("/facets"):
+                return httpx.Response(200, json=_FACETS_PAYLOAD)
+            pc = next(replies)
+            return httpx.Response(200, json=_pc_payload(pc, "cdi_1" if pc > 0 else "alma1"))
+
+        response = await self._run(handler, monkeypatch)
+
+        assert response.info.total_pc == 7
+        assert [r.record_id for r in response.records] == ["cdi_1"]
+        assert response.article_index_incomplete is False
+
+    async def test_zero_is_rechecked_with_an_uncached_search(self, monkeypatch):
+        # A repeat of a search whose article index failed earlier is answered
+        # straight from Primo's cache with the failure stored as 0, with no -1
+        # in the same call. Only an uncached search can tell that apart from
+        # a real zero (in the first test report, disableCache=true found 87
+        # articles where the cached request had returned none).
+        replies = iter([0, 42])
+        requests: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            requests.append(request)
+            if request.url.path.endswith("/facets"):
+                return httpx.Response(200, json=_FACETS_PAYLOAD)
+            pc = next(replies)
+            return httpx.Response(200, json=_pc_payload(pc, "cdi_1" if pc > 0 else "alma1"))
+
+        response = await self._run(handler, monkeypatch)
+
+        first, check, facets = requests
+        assert "disableCache" not in first.url.params
+        assert check.url.params["disableCache"] == "true"
+        assert {k: v for k, v in check.url.params.items() if k != "disableCache"} == dict(
+            first.url.params
+        )
+        # Facets describe the search that produced the final records.
+        assert facets.url.path.endswith("/facets")
+        assert facets.url.params == check.url.params
+        assert response.info.total_pc == 42
+        assert [r.record_id for r in response.records] == ["cdi_1"]
+        assert response.article_index_incomplete is False
+
+    async def test_zero_confirmed_by_an_uncached_search_is_trusted(self, monkeypatch):
+        replies = iter([0, 0])
         pnxs_calls = 0
 
         def handler(request: httpx.Request) -> httpx.Response:
@@ -828,7 +955,37 @@ class TestArticleIndexRetry:
 
         response = await self._run(handler, monkeypatch)
 
-        assert pnxs_calls == len(sequence)
+        assert pnxs_calls == 2
+        assert response.article_index_incomplete is False
+
+    async def test_unreported_article_index_count_is_not_rechecked(self, monkeypatch):
+        # Primo reports totalResultsPC on every combined-scope search; a reply
+        # without it says nothing about the article index, so it is neither
+        # "no articles" nor worth an uncached repeat.
+        pnxs_calls = 0
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            nonlocal pnxs_calls
+            if request.url.path.endswith("/facets"):
+                return httpx.Response(200, json=_FACETS_PAYLOAD)
+            pnxs_calls += 1
+            return httpx.Response(200, json=_search_payload())
+
+        response = await self._run(handler, monkeypatch)
+
+        assert pnxs_calls == 1
+        assert response.article_index_incomplete is False
+
+    async def test_cached_zero_with_a_failing_article_index_is_flagged(self, monkeypatch):
+        replies = iter([0, -1])
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path.endswith("/facets"):
+                return httpx.Response(200, json=_FACETS_PAYLOAD)
+            return httpx.Response(200, json=_pc_payload(next(replies), "alma1"))
+
+        response = await self._run(handler, monkeypatch)
+
         assert response.article_index_incomplete is True
 
     @pytest.mark.parametrize("scope", ["catalogue", "books_videos"])
@@ -856,7 +1013,7 @@ class TestArticleIndexRetry:
             if request.url.path.endswith("/facets"):
                 return httpx.Response(200, json=_FACETS_PAYLOAD)
             pnxs_calls += 1
-            return httpx.Response(200, json=_pc_payload(0, "alma1"))
+            return httpx.Response(200, json=_pc_payload(5, "cdi_1"))
 
         response = await self._run(handler, monkeypatch)
 
@@ -897,6 +1054,25 @@ class TestGetRecords:
             )
 
         assert [r.record_id for r in records] == ["cdi_slow", "cdi_fast"]
+
+    async def test_lookup_records_keeps_a_slot_for_each_missing_id(self):
+        # Callers need to know WHICH ids failed, so primo_cite and
+        # primo_export can say so instead of silently omitting them.
+        async def handler(request: httpx.Request) -> httpx.Response:
+            if "guestJwt" in request.url.path or "/pnxs/" in request.url.path:
+                return httpx.Response(404)
+            rid = request.url.params["q"].rsplit(",", 1)[-1]
+            if rid == "cdi_missing":
+                return _empty_response()
+            return httpx.Response(
+                200, json={"info": {"total": 1}, "docs": [_search_doc(rid)]}
+            )
+
+        async with self._http_client(handler) as http_client:
+            client = PrimoClient(http_client, _config())
+            records = await client.lookup_records(["cdi_a", "cdi_missing", "cdi_b"])
+
+        assert [r.record_id if r else None for r in records] == ["cdi_a", None, "cdi_b"]
 
     async def test_lookups_overlap_instead_of_running_sequentially(self):
         import asyncio

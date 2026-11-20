@@ -49,12 +49,25 @@ _FIELD_ALIASES = {
     "oclcnum": "oclcnum",
 }
 
+# Values are Primo VE's sort codes. The /pnxs API reads them from "sort" and
+# the OneSearch web UI from "sortby"; both use the same codes. Observed at
+# Towson on 2026-11-19: /pnxs ignored sortby=date and sortby=title (relevance
+# order came back), while sort=date_d, date_a, title and author re-ordered
+# the results. The UI bundle names date_d "Date-Newest" and date_a
+# "Date-Oldest".
 _SORT_ALIASES = {
     "rank": "rank",
     "relevance": "rank",
-    "date": "date",
-    "newest": "date",
+    "date": "date_d",
+    "newest": "date_d",
+    "date_d": "date_d",
+    "date_desc": "date_d",
+    "oldest": "date_a",
+    "date_a": "date_a",
+    "date_asc": "date_a",
     "title": "title",
+    "author": "author",
+    "creator": "author",
 }
 
 _RESOURCE_TYPE_ALIASES = {
@@ -180,6 +193,52 @@ def normalise_facet_name(name: str) -> str:
     return key
 
 
+# Labels the result landscape prints for coded facet values, by facet. Other
+# coded values are printed with spaces for underscores. normalise_facet_value
+# maps both forms back, so a value copied from the landscape still filters.
+FACET_VALUE_LABELS = {
+    "tlevel": {
+        "available_p": "available in library (physical)",
+        "online_resources": "online",
+    },
+}
+# Facets whose values are lowercase codes such as "review_article".
+_CODED_FACETS = ("rtype", "tlevel")
+
+
+def normalise_facet_value(name: str, value: str) -> str:
+    """Return the facet value Primo matches, given a code or its label.
+
+    Free-text facets (topic, creator, jtitle, ...) pass through unchanged.
+    For coded facets, the landscape's display form ("review article",
+    "online") would otherwise match nothing and silently filter nothing.
+    """
+    value = value.strip()
+    if name not in _CODED_FACETS:
+        return value
+    key = " ".join(value.lower().split())
+    for code, label in FACET_VALUE_LABELS.get(name, {}).items():
+        if key == label:
+            return code
+    return key.replace(" ", "_")
+
+
+def facet_filter_pairs(
+    filters: Mapping[str, str] | None, label: str = "facet_filters"
+) -> list[tuple[str, str]]:
+    """Validate a {facet: value} mapping into (Primo name, Primo value) pairs."""
+    if not filters:
+        return []
+    pairs: list[tuple[str, str]] = []
+    for raw_name, raw_value in filters.items():
+        name = normalise_facet_name(str(raw_name))
+        value = str(raw_value).strip()
+        if not value:
+            raise ValueError(f'{label} value for "{raw_name}" is empty.')
+        pairs.append((name, normalise_facet_value(name, value)))
+    return pairs
+
+
 def compile_facet_filters(
     filters: Mapping[str, str] | None, label: str = "facet_filters"
 ) -> list[str]:
@@ -188,18 +247,12 @@ def compile_facet_filters(
     Each part is ``facet_<name>,exact,<value>``, the shape Primo's qInclude
     and qExclude parameters share (parts joined with ``|,|``). Values are
     matched exactly against facet values as Primo reports them, e.g. in the
-    facet summary of a previous search.
+    facet summary of a previous search; coded values may also be given in
+    the landscape's display form (see normalise_facet_value).
     """
-    if not filters:
-        return []
-    parts: list[str] = []
-    for raw_name, raw_value in filters.items():
-        name = normalise_facet_name(str(raw_name))
-        value = str(raw_value).strip()
-        if not value:
-            raise ValueError(f'{label} value for "{raw_name}" is empty.')
-        parts.append(f"facet_{name},exact,{value}")
-    return parts
+    return [
+        f"facet_{name},exact,{value}" for name, value in facet_filter_pairs(filters, label)
+    ]
 
 
 def normalise_operator(operator: str) -> str:

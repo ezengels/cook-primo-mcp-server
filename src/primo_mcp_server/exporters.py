@@ -124,8 +124,14 @@ def export_bibtex(records: list[PrimoRecord]) -> str:
             if record.end_page:
                 pages += f"--{record.end_page}"
             fields.append(f"  pages = {{{pages}}}")
-        if record.publisher:
-            fields.append(f"  publisher = {{{_bibtex_escape(record.publisher)}}}")
+        # BibTeX keeps the place in its own field; display.publisher joins
+        # them ("Stoneham, Massachusetts : Butterworth-Heinemann").
+        if record.publisher_without_place:
+            fields.append(
+                f"  publisher = {{{_bibtex_escape(record.publisher_without_place)}}}"
+            )
+        if record.place_of_publication:
+            fields.append(f"  address = {{{_bibtex_escape(record.place_of_publication)}}}")
         if record.doi:
             fields.append(f"  doi = {{{record.doi}}}")
         if record.isbn:
@@ -193,8 +199,8 @@ def export_ris(records: list[PrimoRecord]) -> str:
         if record.end_page:
             _append_ris(lines, "EP", record.end_page)
 
-        if record.publisher:
-            _append_ris(lines, "PB", record.publisher)
+        _append_ris(lines, "PB", record.publisher_without_place)
+        _append_ris(lines, "CY", record.place_of_publication)
 
         if record.doi:
             _append_ris(lines, "DO", record.doi)

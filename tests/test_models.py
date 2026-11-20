@@ -145,6 +145,91 @@ class TestNameCleaning:
         assert record.authors_structured == []
         assert record.display_authors == ["Solo, Ashu M. G.", "Arabnia, Hamid R."]
 
+    def test_co_author_in_addau_is_kept_when_catalogued_as_author(self):
+        # Kim & Karrila, Microhydrodynamics (alma9964140532108249), as served
+        # at Towson: the second author sits in addau, and display.contributor
+        # marks him "author.". Using au alone cited the book as "Kim, S.".
+        doc = {
+            "pnx": {
+                "display": {
+                    "title": ["Microhydrodynamics"],
+                    "creator": ["Kim, Sangtae, author.$$QKim, Sangtae"],
+                    "contributor": ["Karrila, Seppo J., author.$$QKarrila, Seppo J."],
+                },
+                "addata": {"au": ["Kim, Sangtae"], "addau": ["Karrila, Seppo J."]},
+                "control": {"recordid": ["alma9964140532108249"]},
+            }
+        }
+        record = PrimoRecord.from_api_doc(doc)
+        assert record.display_authors == ["Kim, Sangtae", "Karrila, Seppo J."]
+
+    def test_addau_editor_is_not_made_a_co_author(self):
+        doc = {
+            "pnx": {
+                "display": {
+                    "title": ["On the origin of species"],
+                    "contributor": ["Endersby, Jim, 1968- editor.$$QEndersby, Jim"],
+                },
+                "addata": {"au": ["Darwin, Charles"], "addau": ["Endersby, Jim"]},
+                "control": {"recordid": ["r6"]},
+            }
+        }
+        record = PrimoRecord.from_api_doc(doc)
+        assert record.display_authors == ["Darwin, Charles"]
+
+    def test_addau_without_a_catalogued_role_is_not_added(self):
+        # Without a relator we cannot tell a co-author from an editor, so the
+        # name is not promoted to author.
+        doc = {
+            "pnx": {
+                "display": {"title": ["T"]},
+                "addata": {"au": ["Smith, Jane"], "addau": ["Doe, John"]},
+                "control": {"recordid": ["r7"]},
+            }
+        }
+        record = PrimoRecord.from_api_doc(doc)
+        assert record.display_authors == ["Smith, Jane"]
+
+    def test_strips_a_chain_of_relators(self):
+        # alma9911670507508236: "..., author, issuing body." left ", author"
+        # on the name, and citations printed it.
+        doc = {
+            "pnx": {
+                "display": {
+                    "title": ["15th AIAA Computational Fluid Dynamics Conference"],
+                    "creator": [
+                        "American Institute of Aeronautics and Astronautics, author, "
+                        "issuing body.$$QAmerican Institute of Aeronautics and Astronautics"
+                    ],
+                },
+                "control": {"recordid": ["alma9911670507508236"]},
+            }
+        }
+        record = PrimoRecord.from_api_doc(doc)
+        assert record.creators == ["American Institute of Aeronautics and Astronautics"]
+
+    def test_parses_publisher_name_place_and_article_number(self):
+        # Li & Koch 2022, JFM, as served at Towson.
+        doc = {
+            "pnx": {
+                "display": {
+                    "title": ["Dynamics of a self-propelled compound droplet"],
+                    "publisher": ["Cambridge, UK: Cambridge University Press"],
+                },
+                "addata": {
+                    "pub": ["Cambridge University Press"],
+                    "cop": ["Cambridge, UK"],
+                    "artnum": ["A16"],
+                },
+                "control": {"recordid": ["cdi_crossref_primary_10_1017_jfm_2022_891"]},
+            }
+        }
+        record = PrimoRecord.from_api_doc(doc)
+        assert record.publisher == "Cambridge, UK: Cambridge University Press"
+        assert record.publisher_name == "Cambridge University Press"
+        assert record.publication_place == "Cambridge, UK"
+        assert record.article_number == "A16"
+
     def test_unknown_author_when_no_names(self):
         doc = {"pnx": {"display": {"title": ["A journal"]}, "control": {"recordid": ["r5"]}}}
         record = PrimoRecord.from_api_doc(doc)
@@ -478,6 +563,31 @@ class TestDeliveryParsing:
             self._doc({"deliveryCategory": ["Alma-P"]})
         )
         assert record.delivery_category == "Alma-P"
+
+    def test_parses_availability_codes_and_other_institutions(self):
+        # Shape seen live at Towson for "Low Reynolds number hydrodynamics":
+        # no inventory at Towson, held by two other USMAI libraries.
+        record = PrimoRecord.from_api_doc(
+            self._doc(
+                {
+                    "availability": ["no_inventory"],
+                    "deliveryCategory": ["Alma-P"],
+                    "almaInstitutionsList": [
+                        {
+                            "instCode": "01USMAI_UMCP",
+                            "instName": "University of Maryland, College Park (UMCP)",
+                            "availabilityStatus": "available_in_institution",
+                        },
+                        {"instCode": "01USMAI_X", "instName": "", "availabilityStatus": "x"},
+                        "not a dict",
+                    ],
+                }
+            )
+        )
+        assert record.availability == ["no_inventory"]
+        assert [(i.name, i.status) for i in record.other_institutions] == [
+            ("University of Maryland, College Park (UMCP)", "available_in_institution"),
+        ]
 
     def test_malformed_delivery_block_is_ignored(self):
         doc = self._doc({"bestlocation": "junk", "holding": "junk", "link": "junk"})

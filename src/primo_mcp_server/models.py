@@ -63,12 +63,19 @@ _RELATORS = (
     "interviewee", "performer", "director", "producer", "composer",
     "photographer",
 )
-# Require the trailing period that Primo always appends ("author.", "editor."),
-# so a genuine name segment that happens to be a relator word is left intact.
+_RELATOR_ALTERNATION = "|".join(re.escape(r) for r in _RELATORS)
+# One or more relators at the end of a name, as in "author." or "author,
+# issuing body.". Require the trailing period that Primo always appends, so
+# a genuine name segment that happens to be a relator word is left intact.
 _RELATOR_RE = re.compile(
-    r"[,\s]+(?:" + "|".join(re.escape(r) for r in _RELATORS) + r")\.\s*$",
+    r"(?:[,\s]+(?:" + _RELATOR_ALTERNATION + r"))+\.\s*$",
     re.IGNORECASE,
 )
+_RELATOR_WORD_RE = re.compile(_RELATOR_ALTERNATION, re.IGNORECASE)
+# Relators that make a name in addata.addau a co-author. addau also holds
+# editors, translators and other contributors, so a name counts as a
+# co-author only when display.contributor catalogues it with one of these.
+_AUTHOR_RELATORS = frozenset({"author", "authors", "joint author", "writer"})
 _SUBFIELD_RE = re.compile(r"\$\$([A-Za-z])([^$]*)")
 _VALUE_SEPARATORS_RE = re.compile(r"[;\uff1b]")
 # Prefixes sometimes carried by DOI values: "doi:10.x", "DOI: 10.x",
@@ -174,6 +181,31 @@ def _clean_names(
     return names
 
 
+def name_key(name: str) -> str:
+    """Letters-only, case-folded form of a name, for matching across fields.
+
+    display.contributor carries dates and punctuation that addata.addau
+    lacks ("Endersby, Jim, 1968-" against "Endersby, Jim").
+    """
+    return re.sub(r"[\W\d_]+", "", name).casefold()
+
+
+def _relator_roles(raw_values: list[str]) -> dict[str, set[str]]:
+    """Map each catalogued name (by name_key) to the relator terms after it."""
+    roles: dict[str, set[str]] = {}
+    for raw in raw_values:
+        for part in _VALUE_SEPARATORS_RE.split(_strip_subfields(raw)):
+            part = part.strip()
+            match = _RELATOR_RE.search(part)
+            if not match:
+                continue
+            name = part[: match.start()].strip().rstrip(",").strip()
+            if name:
+                words = {w.lower() for w in _RELATOR_WORD_RE.findall(match.group(0))}
+                roles.setdefault(name_key(name), set()).update(words)
+    return roles
+
+
 class HoldingLocation(BaseModel):
     """A physical holding location for a record."""
 
@@ -188,6 +220,37 @@ class AccessLink(BaseModel):
 
     label: str = ""
     url: str = ""
+
+
+class InstitutionAvailability(BaseModel):
+    """Another library in the consortium network that holds the record.
+
+    From the doc-level delivery block's almaInstitutionsList (Alma Network
+    Zone), e.g. a USMAI library that has a book Towson does not.
+    """
+
+    name: str = ""
+    code: str = ""
+    status: str = ""
+
+
+def _parse_institutions(delivery: dict) -> list[InstitutionAvailability]:
+    """Parse the other network libraries that hold a record."""
+    institutions: list[InstitutionAvailability] = []
+    for entry in delivery.get("almaInstitutionsList") or []:
+        if not isinstance(entry, dict):
+            continue
+        name = str(entry.get("instName") or "").strip()
+        if not name:
+            continue
+        institutions.append(
+            InstitutionAvailability(
+                name=name,
+                code=str(entry.get("instCode") or "").strip(),
+                status=str(entry.get("availabilityStatus") or "").strip(),
+            )
+        )
+    return institutions
 
 
 def _parse_locations(delivery: dict) -> list[HoldingLocation]:
@@ -261,7 +324,11 @@ class PrimoRecord(BaseModel):
     language: str = ""
     creators: list[str] = Field(default_factory=list)
     contributors: list[str] = Field(default_factory=list)
+    # display.publisher, usually "Place : Publisher"; publisher_name and
+    # publication_place are the separate addata.pub and addata.cop values.
     publisher: str = ""
+    publisher_name: str = ""
+    publication_place: str = ""
     creation_date: str = ""
     source_label: str = ""
     description: str = ""
@@ -282,14 +349,26 @@ class PrimoRecord(BaseModel):
     issue: str = ""
     start_page: str = ""
     end_page: str = ""
+    # addata.artnum, for journals that number articles instead of paging
+    # them (e.g. Journal of Fluid Mechanics: "A16").
+    article_number: str = ""
     peer_reviewed: bool = False
     ris_type: str = ""
     authors_structured: list[str] = Field(default_factory=list)
     additional_authors: list[str] = Field(default_factory=list)
+    # The additional_authors that display.contributor catalogues as authors
+    # (not editors or translators): co-authors such as Karrila in Kim and
+    # Karrila, Microhydrodynamics.
+    co_authors: list[str] = Field(default_factory=list)
 
     # Availability
     fulltext_available: bool = False
     delivery_category: str = ""
+    # Primo's availability status codes (doc-level delivery.availability),
+    # e.g. "not_restricted", "available_in_maininstitution", "no_inventory".
+    availability: list[str] = Field(default_factory=list)
+    # Other network (USMAI) libraries that hold the record.
+    other_institutions: list[InstitutionAvailability] = Field(default_factory=list)
     # From the doc-level delivery block: where physical copies sit, direct
     # electronic access links, and the Alma link-resolver openurl.
     locations: list[HoldingLocation] = Field(default_factory=list)
@@ -357,6 +436,16 @@ class PrimoRecord(BaseModel):
         except (ValueError, IndexError):
             score = 0.0
 
+        additional_authors = _clean_names(
+            _to_list(addata.get("addau")), split=False, strip_relators=False
+        )
+        roles = _relator_roles(_to_list(display.get("contributor")))
+        co_authors = [
+            name
+            for name in additional_authors
+            if roles.get(name_key(name), set()) & _AUTHOR_RELATORS
+        ]
+
         return cls(
             record_id=_first_or_empty(control.get("recordid")),
             source_id=_first_or_empty(control.get("sourceid")),
@@ -367,6 +456,8 @@ class PrimoRecord(BaseModel):
             creators=creators,
             contributors=_clean_names(_to_list(display.get("contributor"))),
             publisher=_strip_subfields(_first_or_empty(display.get("publisher"))),
+            publisher_name=_strip_subfields(_first_or_empty(addata.get("pub"))),
+            publication_place=_strip_subfields(_first_or_empty(addata.get("cop"))),
             creation_date=_first_or_empty(display.get("creationdate"))
                 or _first_or_empty(addata.get("date")),
             source_label=_first_or_empty(display.get("source")),
@@ -385,17 +476,23 @@ class PrimoRecord(BaseModel):
             issue=_first_or_empty(addata.get("issue")),
             start_page=_first_or_empty(addata.get("spage")),
             end_page=_first_or_empty(addata.get("epage")),
+            article_number=_first_or_empty(addata.get("artnum")).strip(),
             peer_reviewed=peer_reviewed,
             ris_type=_first_or_empty(addata.get("ristype")),
             authors_structured=_clean_names(
                 _to_list(addata.get("au")), split=False, strip_relators=False
             ),
-            additional_authors=_clean_names(
-                _to_list(addata.get("addau")), split=False, strip_relators=False
-            ),
+            additional_authors=additional_authors,
+            co_authors=co_authors,
             fulltext_available=_fulltext_available(delivery.get("fulltext")),
             delivery_category=_first_or_empty(delivery.get("delcategory"))
                 or _first_or_empty(doc_delivery.get("deliveryCategory")),
+            availability=[
+                code.strip()
+                for code in _to_list(doc_delivery.get("availability"))
+                if code.strip()
+            ],
+            other_institutions=_parse_institutions(doc_delivery),
             locations=_parse_locations(doc_delivery),
             access_links=_parse_access_links(doc_delivery),
             openurl=_parse_openurl(doc_delivery),
@@ -409,16 +506,40 @@ class PrimoRecord(BaseModel):
 
         Primo splits names across several fields: structured authors
         (addata.au) and additional authors/editors (addata.addau) are clean,
-        while display.creator/contributor carry subfield noise. Falling back
-        through them avoids "Unknown author" when only an edited-book editor
-        list (addau) or a contributor is present.
+        while display.creator/contributor carry subfield noise. Structured
+        authors are followed by the addau names catalogued as authors
+        (co_authors); without those, a two-author book was cited under its
+        first author alone. Falling back through the other fields avoids
+        "Unknown author" when only an edited-book editor list (addau) or a
+        contributor is present.
         """
-        return (
-            self.authors_structured
-            or self.additional_authors
-            or self.creators
-            or self.contributors
-        )
+        if self.authors_structured:
+            seen = {name_key(name) for name in self.authors_structured}
+            extra: list[str] = []
+            for name in self.co_authors:
+                key = name_key(name)
+                if key not in seen:
+                    seen.add(key)
+                    extra.append(name)
+            return [*self.authors_structured, *extra]
+        return self.additional_authors or self.creators or self.contributors
+
+    @property
+    def publisher_without_place(self) -> str:
+        """The publisher's name alone: addata.pub, else display.publisher
+        after its ISBD " : " place separator."""
+        if self.publisher_name:
+            return self.publisher_name
+        _place, separator, name = self.publisher.rpartition(" : ")
+        return name.strip() if separator else self.publisher.strip()
+
+    @property
+    def place_of_publication(self) -> str:
+        """addata.cop, else display.publisher before its ISBD " : "."""
+        if self.publication_place:
+            return self.publication_place
+        place, separator, _name = self.publisher.rpartition(" : ")
+        return place.strip() if separator else ""
 
     @property
     def year(self) -> str:
@@ -438,6 +559,9 @@ class SearchInfo(BaseModel):
     total: int = 0
     total_local: int = 0
     total_pc: int = 0
+    # Whether Primo sent totalResultsPC at all; total_pc is 0 by default, so
+    # this tells a reported zero from no report.
+    pc_reported: bool = False
     first: int = 0
     last: int = 0
 
@@ -521,6 +645,7 @@ class SearchResponse(BaseModel):
             total=info_raw.get("total", 0),
             total_local=info_raw.get("totalResultsLocal", 0),
             total_pc=info_raw.get("totalResultsPC", 0),
+            pc_reported="totalResultsPC" in info_raw,
             first=info_raw.get("first", 0),
             last=info_raw.get("last", 0),
         )

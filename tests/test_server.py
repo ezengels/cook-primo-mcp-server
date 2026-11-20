@@ -67,6 +67,13 @@ class _FakeClient:
             for record_id in record_ids
         ]
 
+    async def lookup_records(self, record_ids: list[str]) -> list[PrimoRecord | None]:
+        found = iter(await self.get_records(record_ids))
+        return [
+            None if record_id.startswith("missing") else next(found)
+            for record_id in record_ids
+        ]
+
 
 def _write_librarians_file(tmp_path) -> str:
     path = tmp_path / "librarians.json"
@@ -999,3 +1006,44 @@ async def test_submission_without_a_directory_cannot_invent_one():
     )
 
     assert "Librarian directory unavailable" in output
+
+
+async def test_primo_cite_names_ids_it_could_not_find():
+    output = await primo_cite(_fake_context(), ["alma123", "missing_1"])
+
+    assert "Executive Compensation Data" in output
+    assert "Not found: missing_1" in output
+
+
+async def test_primo_cite_with_nothing_found_names_the_ids():
+    output = await primo_cite(_fake_context(), ["missing_1", "missing_2"])
+
+    assert output.startswith("No records found for: missing_1, missing_2")
+
+
+async def test_primo_export_names_ids_it_could_not_find():
+    bibtex = await primo_export(_fake_context(), ["alma123", "missing_1"], format="bibtex")
+    ris = await primo_export(_fake_context(), ["alma123", "missing_1"], format="ris")
+
+    # A BibTeX comment line, so the file still imports.
+    assert bibtex.startswith("% Not found (omitted below): missing_1")
+    assert "@book{" in bibtex
+    assert ris.startswith("Not found (omitted below): missing_1")
+    assert "TY  - BOOK" in ris
+
+
+async def test_primo_search_link_carries_facet_filters():
+    result = await primo_search(
+        _fake_context(),
+        "economics",
+        facet_filters={"topic": "Economics"},
+        facet_exclusions={"rtype": "reviews"},
+        recommend_librarians=False,
+    )
+    output = _search_text(result)
+
+    assert "facet=topic%2Cinclude%2CEconomics" in output
+    assert "facet=rtype%2Cexclude%2Creviews" in output
+    transparency = result.structuredContent["search_transparency"]
+    url = transparency["queries_attempted"][0]["url"]
+    assert "facet=topic%2Cinclude%2CEconomics" in url

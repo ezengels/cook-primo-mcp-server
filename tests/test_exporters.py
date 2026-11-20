@@ -120,3 +120,31 @@ class TestCSV:
         assert output.startswith("\ufeff")
         assert title in output
         assert author in output
+
+
+class TestPublisherAndAuthors:
+    @staticmethod
+    def _kim_karrila() -> PrimoRecord:
+        return PrimoRecord(
+            record_id="alma9964140532108249",
+            title="Microhydrodynamics : principles and selected applications",
+            resource_type="book",
+            authors_structured=["Kim, Sangtae"],
+            co_authors=["Karrila, Seppo J."],
+            creation_date="1991",
+            publisher="Stoneham, Massachusetts : Butterworth-Heinemarm",
+            publisher_name="Butterworth-Heinemarm",
+            publication_place="Stoneham, Massachusetts",
+        )
+
+    def test_bibtex_separates_publisher_and_address_and_keeps_co_author(self):
+        output = export_bibtex([self._kim_karrila()])
+        assert "author = {Kim, Sangtae and Karrila, Seppo J.}" in output
+        assert "publisher = {Butterworth-Heinemarm}" in output
+        assert "address = {Stoneham, Massachusetts}" in output
+
+    def test_ris_separates_publisher_and_place_and_keeps_co_author(self):
+        output = export_ris([self._kim_karrila()])
+        assert "AU  - Kim, Sangtae\nAU  - Karrila, Seppo J." in output
+        assert "PB  - Butterworth-Heinemarm" in output
+        assert "CY  - Stoneham, Massachusetts" in output

@@ -37,14 +37,16 @@ def _authors_last_initials(creators: list[str]) -> list[str]:
 
 
 def _authors_apa(creators: list[str]) -> str:
-    """Format authors in APA 7th style."""
+    """Format authors in APA 7th style.
+
+    APA puts a comma before the ampersand even for two authors
+    ("Li, G., & Koch, D. L.").
+    """
     formatted = _authors_last_initials(creators)
     if not formatted:
         return "Unknown author"
     if len(formatted) == 1:
         return formatted[0]
-    if len(formatted) == 2:
-        return f"{formatted[0]} & {formatted[1]}"
     if len(formatted) <= 20:
         return ", ".join(formatted[:-1]) + ", & " + formatted[-1]
     # 20+ authors: first 19, ..., last
@@ -52,8 +54,28 @@ def _authors_apa(creators: list[str]) -> str:
 
 
 def _authors_harvard(creators: list[str]) -> str:
-    """Format authors in Harvard style (same as APA for most cases)."""
-    return _authors_apa(creators)
+    """Format authors in Harvard style: "and" before the last, no serial comma."""
+    formatted = _authors_last_initials(creators)
+    if not formatted:
+        return "Unknown author"
+    if len(formatted) == 1:
+        return formatted[0]
+    if len(formatted) <= 20:
+        return ", ".join(formatted[:-1]) + " and " + formatted[-1]
+    return ", ".join(formatted[:19]) + ", ... " + formatted[-1]
+
+
+def _terminate(text: str) -> str:
+    """End text with one period: names ending in an initial already have it."""
+    return text if text.endswith((".", "?", "!")) else f"{text}."
+
+
+def _publisher_with_place(r: PrimoRecord) -> str:
+    """Return "Place: Publisher" for the styles that give the place (not APA 7)."""
+    place, name = r.place_of_publication, r.publisher_without_place
+    if place and name:
+        return f"{place}: {name}"
+    return name or place
 
 
 def _authors_chicago(creators: list[str]) -> str:
@@ -133,6 +155,8 @@ def _cite_article_apa(r: PrimoRecord) -> str:
             vol_info += f", {r.start_page}"
             if r.end_page:
                 vol_info += f"-{r.end_page}"
+        elif r.article_number:
+            vol_info += f", Article {r.article_number}"
         parts.append(f"{vol_info}.")
     if r.doi:
         parts.append(f"https://doi.org/{r.doi}")
@@ -140,11 +164,11 @@ def _cite_article_apa(r: PrimoRecord) -> str:
 
 
 def _cite_book_apa(r: PrimoRecord) -> str:
-    """APA 7 book citation."""
+    """APA 7 book citation (APA 7 omits the place of publication)."""
     authors = _authors_apa(r.display_authors)
     year = _year(r)
     title = r.title.rstrip(".")
-    publisher = r.publisher or ""
+    publisher = r.publisher_without_place
 
     parts = [f"{authors} ({year}). *{title}*."]
     if publisher:
@@ -172,6 +196,8 @@ def _cite_article_harvard(r: PrimoRecord) -> str:
             vol_info += f", pp. {r.start_page}"
             if r.end_page:
                 vol_info += f"-{r.end_page}"
+        elif r.article_number:
+            vol_info += f", article {r.article_number}"
         parts.append(f"{vol_info}.")
     if r.doi:
         parts.append(f"https://doi.org/{r.doi}")
@@ -183,7 +209,7 @@ def _cite_book_harvard(r: PrimoRecord) -> str:
     authors = _authors_harvard(r.display_authors)
     year = _year(r)
     title = r.title.rstrip(".")
-    publisher = r.publisher or ""
+    publisher = _publisher_with_place(r)
 
     parts = [f"{authors} ({year}) *{title}*,"]
     if publisher:
@@ -198,7 +224,7 @@ def _cite_article_chicago(r: PrimoRecord) -> str:
     title = r.title.rstrip(".")
     journal = r.journal_title
 
-    parts = [f'{authors}. "{title}."']
+    parts = [f'{_terminate(authors)} "{title}."']
     if journal:
         vol_info = f"*{journal}*"
         if r.volume:
@@ -211,6 +237,8 @@ def _cite_article_chicago(r: PrimoRecord) -> str:
             if r.end_page:
                 start += f"-{r.end_page}"
             parts[-1] += f": {start}"
+        elif r.article_number:
+            parts[-1] += f": {r.article_number}"
         parts[-1] += "."
     else:
         # Without a journal title the year was previously dropped entirely,
@@ -226,9 +254,9 @@ def _cite_book_chicago(r: PrimoRecord) -> str:
     authors = _authors_chicago(r.display_authors)
     year = _year(r)
     title = r.title.rstrip(".")
-    publisher = r.publisher or ""
+    publisher = _publisher_with_place(r)
 
-    parts = [f"{authors}. *{title}*."]
+    parts = [f"{_terminate(authors)} *{title}*."]
     if publisher:
         parts.append(f"{publisher}, {year}.")
     else:
@@ -265,6 +293,8 @@ def _cite_article_ieee(r: PrimoRecord) -> str:
             vol_info += f", pp. {r.start_page}"
             if r.end_page:
                 vol_info += f"-{r.end_page}"
+        elif r.article_number:
+            vol_info += f", Art. no. {r.article_number}"
         parts.append(f"{vol_info}, {year}.")
     else:
         # Without a journal title the year was previously dropped entirely,
@@ -286,7 +316,7 @@ def _cite_book_ieee(r: PrimoRecord) -> str:
             authors_str += " et al."
 
     title = r.title.rstrip(".")
-    publisher = r.publisher or ""
+    publisher = _publisher_with_place(r)
     year = _year(r)
 
     parts = [f"{authors_str}, *{title}*."]
@@ -304,7 +334,7 @@ def _cite_article_vancouver(r: PrimoRecord) -> str:
     journal = r.journal_title or ""
     year = _year(r)
 
-    parts = [f"{authors}. {title}."]
+    parts = [f"{_terminate(authors)} {title}."]
     if journal:
         vol_info = f"{journal}. {year}"
         if r.volume:
@@ -315,6 +345,8 @@ def _cite_article_vancouver(r: PrimoRecord) -> str:
             vol_info += f":{r.start_page}"
             if r.end_page:
                 vol_info += f"-{r.end_page}"
+        elif r.article_number:
+            vol_info += f":{r.article_number}"
         parts.append(f"{vol_info}.")
     else:
         # Without a journal title the year was previously dropped entirely,
@@ -329,10 +361,10 @@ def _cite_book_vancouver(r: PrimoRecord) -> str:
     """Vancouver book citation."""
     authors = _authors_vancouver(r.display_authors)
     title = r.title.rstrip(".")
-    publisher = r.publisher or ""
+    publisher = _publisher_with_place(r)
     year = _year(r)
 
-    parts = [f"{authors}. {title}."]
+    parts = [f"{_terminate(authors)} {title}."]
     if publisher:
         parts.append(f"{publisher}; {year}.")
     else:

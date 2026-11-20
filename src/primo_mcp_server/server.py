@@ -20,6 +20,7 @@ from primo_mcp_server.citations import format_citation, invalid_style_message
 from primo_mcp_server.client import PrimoAPIError, PrimoClient
 from primo_mcp_server.config import PrimoConfig
 from primo_mcp_server.exporters import export_bibtex, export_csv, export_ris
+from primo_mcp_server.models import PrimoRecord
 from primo_mcp_server.formatter import (
     build_search_url,
     format_record_detail,
@@ -467,6 +468,8 @@ async def primo_search(
             peer_reviewed=peer_reviewed,
             include_unavailable=include_unavailable,
             clauses=clauses,
+            facet_filters=facet_filters,
+            facet_exclusions=facet_exclusions,
         )
         recommendation: FormattedRecommendation | None = None
         if (
@@ -536,6 +539,8 @@ async def primo_search(
                     peer_reviewed=peer_reviewed,
                     include_unavailable=include_unavailable,
                     clauses=clauses,
+                    facet_filters=facet_filters,
+                    facet_exclusions=facet_exclusions,
                 ),
             ),
         )
@@ -934,7 +939,9 @@ async def primo_cite(
         style: Citation style -- "apa7" (default), "harvard", "chicago", "ieee", "vancouver".
 
     Returns:
-        Formatted citations. Note: always verify generated citations before submission.
+        Formatted citations, then a "Not found:" line naming any IDs that
+        matched no record. Note: always verify generated citations before
+        submission.
     """
     style_error = invalid_style_message(style)
     if style_error:
@@ -942,16 +949,39 @@ async def primo_cite(
     style = style.strip().lower()
 
     client = _get_client(ctx)
-    records = await client.get_records(record_ids)
+    records, missing = await _lookup_records(client, record_ids)
 
     if not records:
-        return "No records found for the provided IDs."
+        return _no_records_message(record_ids)
 
     citations = [format_citation(record, style) for record in records]
 
     result = "\n\n".join(citations)
+    if missing:
+        result += (
+            f"\n\nNot found: {', '.join(missing)}. No record matched "
+            f"{'this ID' if len(missing) == 1 else 'these IDs'}, so "
+            f"{'it is' if len(missing) == 1 else 'they are'} not cited above."
+        )
     result += "\n\n-- Note: verify citations before submission. Automated formatting may not cover all edge cases."
     return result
+
+
+async def _lookup_records(
+    client: PrimoClient, record_ids: list[str]
+) -> tuple[list[PrimoRecord], list[str]]:
+    """Records found for record_ids, in order, and the IDs that found none."""
+    results = await client.lookup_records(record_ids)
+    found = [record for record in results if record is not None]
+    missing = [rid for rid, record in zip(record_ids, results) if record is None]
+    return found, missing
+
+
+def _no_records_message(record_ids: list[str]) -> str:
+    return (
+        f"No records found for: {', '.join(record_ids)}. Check the IDs against "
+        "a primo_search result, or search for the items again."
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -972,7 +1002,10 @@ async def primo_export(
         format: Export format -- "bibtex" (default), "ris", "csv".
 
     Returns:
-        Formatted export data ready for import into reference managers (Zotero, Mendeley, EndNote).
+        Formatted export data ready for import into reference managers
+        (Zotero, Mendeley, EndNote). When some IDs matched no record, the
+        first line names them ("Not found (omitted below): ..."; a "%"
+        comment in BibTeX) and is not part of the RIS or CSV data.
     """
     valid_formats = {"bibtex", "ris", "csv"}
     format = format.strip().lower()
@@ -980,14 +1013,18 @@ async def primo_export(
         return f'Invalid format "{format}". Use one of: {", ".join(sorted(valid_formats))}'
 
     client = _get_client(ctx)
-    records = await client.get_records(record_ids)
+    records, missing = await _lookup_records(client, record_ids)
 
     if not records:
-        return "No records found for the provided IDs."
+        return _no_records_message(record_ids)
 
     if format == "bibtex":
-        return export_bibtex(records)
+        data = export_bibtex(records)
     elif format == "ris":
-        return export_ris(records)
+        data = export_ris(records)
     else:
-        return export_csv(records)
+        data = export_csv(records)
+    if not missing:
+        return data
+    note = f"Not found (omitted below): {', '.join(missing)}"
+    return f"% {note}\n\n{data}" if format == "bibtex" else f"{note}\n\n{data}"

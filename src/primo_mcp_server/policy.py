@@ -152,7 +152,7 @@ Args:
     query: Search terms (e.g. "machine learning entrepreneurship").
     field: Search field -- "any" (default), "title", "creator", "sub" (subject), "isbn", "issn", "oclcnum".
     scope: "everything" (default) for OneSearch's default search: Towson's catalogue, the other USMAI libraries' catalogues, and article-index (CDI) records Towson can access. "catalogue" for Towson's own holdings only (books, ebooks, journals, databases, videos; no article index). "books_videos" for the USMAI network catalogue: catalogue records from every USMAI library, no article index.
-    sort_by: "rank" (relevance, default), "date" (newest first), "title" (alphabetical).
+    sort_by: "rank" (relevance, default), "date" (newest first), "oldest" (oldest first), "title" (alphabetical), "author".
     limit: Number of results to return (1-50, default 10).
     offset: Pagination offset (default 0). Use to get the next page of results.
     resource_type: Filter by type -- "books", "articles", "journals", "databases", "videos", "dissertations", "conference_proceedings".

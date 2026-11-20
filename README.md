@@ -103,8 +103,9 @@ with your NetID as usual.
 
 Searches of everything usually take 1 to 5 seconds. When OneSearch's article
 index is slow, the server repeats the search, which can take up to about 15
-seconds. If the article index still hasn't answered, the results say so and
-contain only catalogue records; ask Claude to run the search again later.
+seconds, and it double-checks any search that reports no articles at all. If
+the article index still has not answered, the results say so and contain only
+catalogue records; ask Claude to run the search again later.
 
 ### Updates and removal
 
@@ -143,10 +144,35 @@ made for it lives in the plugin's own folder and is removed with it.
 - Article-index retry: when OneSearch's article index (CDI) is slow, Primo
   answers after about five seconds with catalogue records only and reports
   the article count as `-1`. Searches of everything now repeat the request
-  up to twice. If the article index still hasn't answered, or reports 0 only
+  up to twice. If the article index still has not answered, or reports 0 only
   after timing out, the result says the articles are missing instead of
   implying none exist. Without this, a slow article index made searches look
   catalogue-only.
+- Cached failures: Primo stores a failed article search as 0 articles, and a
+  later repeat of the same search gets that 0 straight from its cache, with
+  no `-1` to give it away. Any reported 0 is now checked once more with
+  `disableCache=true`, which makes Primo search again.
+- Sorting: `/pnxs` reads `sort`, not `sortby`, so `sort_by` was silently
+  ignored and every search came back in relevance order. The client now
+  sends `sort` with Primo's codes (`date_d` for newest first, `date_a` for
+  oldest, `title`, `author`), and the OneSearch links use the same codes.
+- Re-run links: the "Queries attempted" links now carry `facet_filters` and
+  `facet_exclusions` as well, so they reproduce the search that actually
+  ran. Coded facet values may be given as the result landscape prints them
+  ("review article" for `review_article`, "online" for `online_resources`);
+  before, those labels matched nothing and silently filtered nothing.
+- Availability: results show Primo's status for each record ("Available
+  online", "Available in the library", "Not held here", "Check holdings"),
+  worded after Towson's own OneSearch labels, instead of the delivery
+  category ("Alma-P", "Alma-E"), which only says what kind of record it is.
+  Records held by other USMAI libraries list them, with their status.
+- Citations and exports: co-authors catalogued as authors in `addata.addau`
+  are kept (Kim and Karrila's *Microhydrodynamics* was cited under Kim
+  alone); APA has its comma before "&" and article numbers ("Article A16");
+  APA gives the publisher without its place, and the other styles give
+  "Place: Publisher"; Chicago no longer doubles the period after initials;
+  BibTeX and RIS put the place in `address` and `CY`; `primo_cite` and
+  `primo_export` name any record IDs they could not find.
 - Claude Code plugin: `.claude-plugin/plugin.json` starts the server with
   `uv run`, and `.claude-plugin/marketplace.json` makes this repository a
   one-plugin marketplace (see [The plugin](#the-plugin)). `uv.lock` is
@@ -185,8 +211,10 @@ real Primo API (Towson OneSearch by default), one test per behaviour the code
 relies on: scope and tab
 names, query separators, date and resource-type filters, facets under
 concurrent searches, guest-token record lookup for Alma and CDI records,
-citation and export on real records, and autocomplete. They are skipped by
-default and never run in CI (about 30 requests per run):
+citation and export on real records, autocomplete, date sorting, availability
+status, co-authors and article numbers on two known records, and the other
+USMAI libraries named on network records. They are skipped by default and
+never run in CI (about 40 requests per run):
 
 ```bash
 uv run pytest -m live -v

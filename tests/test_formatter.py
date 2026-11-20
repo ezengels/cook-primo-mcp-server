@@ -2,6 +2,8 @@
 
 from urllib.parse import parse_qs, urlparse
 
+import pytest
+
 from primo_mcp_server.config import PrimoConfig
 from primo_mcp_server.formatter import (
     _format_availability,
@@ -16,6 +18,7 @@ from primo_mcp_server.models import (
     AccessLink,
     Facet,
     FacetValue,
+    InstitutionAvailability,
     PrimoRecord,
     SearchResponse,
 )
@@ -161,8 +164,54 @@ class TestFormatSearchResults:
         assert "Subjects: Social Sciences; Sociology; Volunteering; Singapore" in output
         assert "Keywords: Nonprofit organisations; Community service" in output
         assert "Language: eng | Source: Alma" in output
-        assert "Availability: Alma-E" in output
+        assert "Availability: Electronic resource: check availability in OneSearch" in output
         assert "Record ID: alma99908902601" in output
+
+    def test_queries_attempted_link_carries_facet_filters(self):
+        record = PrimoRecord(record_id="cdi_1", title="T", context="PC")
+        response = SearchResponse.model_validate({"info": {"total": 1}, "records": [record]})
+
+        output = format_search_results(
+            response,
+            "fluid dynamics",
+            config=_smu_config(),
+            facet_filters={"topic": "Physics"},
+            facet_exclusions={"rtype": "reviews"},
+        )
+
+        assert "facet=topic%2Cinclude%2CPhysics" in output
+        assert "facet=rtype%2Cexclude%2Creviews" in output
+
+    def test_other_libraries_holding_the_item_are_listed(self):
+        # USMAI network records Towson does not own say no_inventory at
+        # Towson; almaInstitutionsList names the libraries that hold them.
+        record = PrimoRecord(
+            record_id="alma9910165228008236",
+            title="Low Reynolds number hydrodynamics",
+            context="L",
+            availability=["no_inventory"],
+            delivery_category="Alma-P",
+            other_institutions=[
+                InstitutionAvailability(
+                    name="University of Maryland, College Park (UMCP)",
+                    status="available_in_institution",
+                ),
+                InstitutionAvailability(
+                    name="University of Maryland, Baltimore County (UMBC)",
+                    status="unavailable_in_institution",
+                ),
+            ],
+        )
+        response = SearchResponse.model_validate({"info": {"total": 1}, "records": [record]})
+
+        output = format_search_results(response, "hydrodynamics", config=_smu_config())
+
+        assert "Availability: Not held here" in output
+        assert "Alma-P" not in output
+        assert (
+            "Other libraries: University of Maryland, College Park (UMCP) (available); "
+            "University of Maryland, Baltimore County (UMBC) (checked out)"
+        ) in output
 
 
 class TestArticleIndexIncompleteNote:
@@ -399,8 +448,34 @@ class TestBuildSearchUrl:
 
         params = parse_qs(urlparse(url).query)
         assert params["query"] == ["sub,contains,poverty"]
-        assert params["sortby"] == ["date"]
+        # OneSearch's web UI calls "newest first" date_d (date_a is oldest).
+        assert params["sortby"] == ["date_d"]
         assert params["facet"] == ["rtype,include,books"]
+
+    def test_search_url_carries_facet_filters_and_exclusions(self):
+        # The printed link must re-run the search that actually ran: the web
+        # UI reads each facet as name,include|exclude,value.
+        url = build_search_url(
+            "fluid dynamics",
+            _smu_config(),
+            peer_reviewed=True,
+            facet_filters={"subject": "Physics"},
+            facet_exclusions={"rtype": "review article"},
+        )
+        assert url is not None
+
+        params = parse_qs(urlparse(url).query)
+        assert params["facet"] == [
+            "tlevel,include,peer_reviewed",
+            "topic,include,Physics",
+            "rtype,exclude,review_article",
+        ]
+
+    def test_search_url_is_none_for_an_invalid_facet_name(self):
+        url = build_search_url(
+            "fluid dynamics", _smu_config(), facet_filters={"bad name!": "x"}
+        )
+        assert url is None
 
 
 class TestFormatSuggestions:
@@ -437,6 +512,62 @@ class TestAvailabilityLabel:
             fulltext_available=True,
         )
         assert "Full text available" in _format_availability(record)
+
+    @pytest.mark.parametrize(
+        ("codes", "expected"),
+        [
+            # Towson's own OneSearch labels for these codes, in its label
+            # table: "Available Online", "Check request options" (no
+            # inventory), "Check holdings", "Not Available".
+            (["not_restricted"], "Available online"),
+            (["no_inventory"], 'Not held here: no copy or online access (OneSearch: "Check request options")'),
+            (["available_in_maininstitution"], "Available in the library"),
+            (["check_holdings"], "Check holdings (may be available)"),
+            (["unavailable"], "Not available: checked out or otherwise unavailable"),
+            (["some_new_code"], "some new code"),
+        ],
+    )
+    def test_status_codes_replace_the_delivery_category(self, codes, expected):
+        # The category (Alma-P, Alma-E) says what kind of record it is, not
+        # whether there is a copy: alma9911670507508236 showed "Alma-P" for a
+        # record with no inventory at all.
+        record = PrimoRecord(
+            record_id="alma991", title="T", context="L",
+            availability=codes, delivery_category="Alma-P",
+        )
+        assert _format_availability(record) == expected
+
+    @pytest.mark.parametrize(
+        ("category", "expected"),
+        [
+            ("Alma-P", "Physical item: check availability in OneSearch"),
+            ("Alma-E", "Electronic resource: check availability in OneSearch"),
+            ("Alma-D", "Digital resource: check availability in OneSearch"),
+            ("Something-Else", "Check availability in OneSearch"),
+        ],
+    )
+    def test_category_fallback_when_primo_sends_no_status(self, category, expected):
+        record = PrimoRecord(
+            record_id="alma992", title="T", context="L", delivery_category=category,
+        )
+        assert _format_availability(record) == expected
+
+    def test_record_detail_lists_other_libraries(self):
+        record = PrimoRecord(
+            record_id="alma9964140532108249",
+            title="Microhydrodynamics",
+            context="L",
+            availability=["not_restricted"],
+            other_institutions=[
+                InstitutionAvailability(
+                    name="University of Maryland, Baltimore County (UMBC)",
+                    status="available_in_institution",
+                )
+            ],
+        )
+        detail = format_record_detail(record, _smu_config())
+        assert "Availability: Available online" in detail
+        assert "Other libraries: University of Maryland, Baltimore County (UMBC) (available)" in detail
 
 
 class TestRecordContextMatching:

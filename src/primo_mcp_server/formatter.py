@@ -12,8 +12,10 @@ from primo_mcp_server.policy import (
     ZERO_RESULT_GUIDANCE_LINES,
 )
 from primo_mcp_server.query import (
+    FACET_VALUE_LABELS,
     QueryClause,
     date_range_facet_value,
+    facet_filter_pairs,
     normalise_resource_type,
     normalise_scope,
     normalise_search_field,
@@ -59,20 +61,99 @@ def _format_preview(values: list[str], max_items: int = 4) -> str:
     return "; ".join(shown) + suffix
 
 
+# Primo's availability status codes (doc-level delivery.availability), in
+# words that follow the labels Towson's OneSearch shows for them in its
+# public label table (delivery.code.*): "Available Online", "Check request
+# options", "Check holdings", "Not Available". Unknown codes are shown with
+# spaces for underscores.
+_AVAILABILITY_LABELS = {
+    "fulltext": "Full text available",
+    "fulltext_linktorsrc": "Full text available",
+    "fulltext_multiple": "Full text available",
+    "not_restricted": "Available online",
+    "no_fulltext": "No full text access",
+    "no_fulltext_linktorsrc": "No full text access",
+    "available_in_maininstitution": "Available in the library",
+    "available_in_my_institution": "Available in the library",
+    "available_in_library": "Available in the library",
+    "available_in_institution": "Available (see locations)",
+    "check_holdings": "Check holdings (may be available)",
+    "check_holdings_in_maininstitution": "Check holdings (may be available)",
+    "check_holdings_in_library": "Check holdings (may be available)",
+    "check_holdings_in_institution": "Check holdings (may be available)",
+    "does_not_exist_in_maininstitution": "Check holdings (may be available)",
+    "unavailable": "Not available: checked out or otherwise unavailable",
+    "unavailable_in_maininstitution": "Checked out",
+    "unavailable_in_library": "Checked out",
+    "unavailable_in_institution": "Checked out",
+    "no_inventory": (
+        'Not held here: no copy or online access (OneSearch: "Check request options")'
+    ),
+    "may_be_restricted": "Online access may be restricted",
+    "restricted": "Restricted online access",
+}
+# When Primo sends no status code, the delivery category still says what
+# kind of record it is, though not whether a copy is available.
+_CATEGORY_FALLBACKS = {
+    "alma-p": "Physical item: check availability in OneSearch",
+    "alma-e": "Electronic resource: check availability in OneSearch",
+    "alma-d": "Digital resource: check availability in OneSearch",
+}
+_INSTITUTION_STATUS_LABELS = {
+    "available_in_institution": "available",
+    "check_holdings_in_institution": "check holdings",
+    "unavailable_in_institution": "checked out",
+}
+_INSTITUTIONS_SHOWN = 3
+
+
+def _availability_label(code: str) -> str:
+    key = code.strip().lower()
+    return _AVAILABILITY_LABELS.get(key, key.replace("_", " "))
+
+
 def _format_availability(record: PrimoRecord) -> str:
-    """Format availability information."""
-    parts = []
+    """Format availability information.
+
+    Primo's status codes come first. The delivery category (Alma-P, Alma-E)
+    describes the kind of record only: alma9911670507508236 showed "Alma-P"
+    while its status was no_inventory, with no copy anywhere at Towson.
+    """
     if record.fulltext_available:
-        parts.append("Full text available")
-    elif _record_context(record) == "PC":
+        return "Full text available"
+    labels: list[str] = []
+    for code in record.availability:
+        label = _availability_label(code)
+        if label and label not in labels:
+            labels.append(label)
+    if labels:
+        return " | ".join(labels)
+    if _record_context(record) == "PC":
         # CDI records without the fulltext flag are explicit no-access
         # cases (delivery/fulltext = no_fulltext). Physical Alma holdings
         # also lack the flag but may well be on the shelf, so only remote
         # records get this label; local ones keep the OneSearch fallback.
-        parts.append("No full text access")
-    if record.delivery_category:
-        parts.append(record.delivery_category)
-    return " | ".join(parts) if parts else "Check availability in OneSearch"
+        return "No full text access"
+    return _CATEGORY_FALLBACKS.get(
+        record.delivery_category.strip().lower(), "Check availability in OneSearch"
+    )
+
+
+def _format_other_institutions(record: PrimoRecord) -> str:
+    """Other network libraries that hold the record, with their status."""
+    institutions = record.other_institutions
+    if not institutions:
+        return ""
+    parts = []
+    for institution in institutions[:_INSTITUTIONS_SHOWN]:
+        code = institution.status.strip().lower()
+        status = _INSTITUTION_STATUS_LABELS.get(code, code.replace("_", " "))
+        parts.append(f"{institution.name} ({status})" if status else institution.name)
+    text = "; ".join(parts)
+    extra = len(institutions) - _INSTITUTIONS_SHOWN
+    if extra > 0:
+        text += f" | +{extra} more"
+    return text
 
 
 def _format_location(record: PrimoRecord) -> str:
@@ -193,8 +274,16 @@ def build_search_url(
     peer_reviewed: bool | None = None,
     include_unavailable: bool | None = None,
     clauses: list[QueryClause | dict] | None = None,
+    facet_filters: dict[str, str] | None = None,
+    facet_exclusions: dict[str, str] | None = None,
 ) -> str | None:
-    """Build a direct Primo UI search URL for the search response."""
+    """Build a direct Primo UI search URL for the search response.
+
+    The URL must re-run the search that actually ran, so it carries every
+    filter the API call applied. OneSearch's web UI reads each facet as
+    ``facet=<name>,<include|exclude>,<value>`` (its addStickyFacetsToUrl and
+    getFacetsFromUrl), repeated once per facet.
+    """
     if config is None or not config.vid:
         return None
 
@@ -210,6 +299,8 @@ def build_search_url(
         date_range = date_range_facet_value(date_from, date_to)
         # The Primo UI advanced-search page takes one query param per clause.
         clause_parts = query_clause_parts(clauses) if clauses else None
+        included = facet_filter_pairs(facet_filters, "facet_filters")
+        excluded = facet_filter_pairs(facet_exclusions, "facet_exclusions")
     except ValueError:
         return None
 
@@ -238,6 +329,8 @@ def build_search_url(
         params.append(("facet", f"searchcreationdate,include,{date_range}"))
     if peer_reviewed:
         params.append(("facet", "tlevel,include,peer_reviewed"))
+    params.extend(("facet", f"{name},include,{value}") for name, value in included)
+    params.extend(("facet", f"{name},exclude,{value}") for name, value in excluded)
 
     return f"{app_base}/search?{urlencode(params)}"
 
@@ -298,19 +391,15 @@ _LANDSCAPE_FACETS = (
 )
 _LANDSCAPE_VALUES_SHOWN = 5
 
-# Availability (tlevel) facet codes that don't read well de-underscored.
-_TLEVEL_LABELS = {
-    "available_p": "available in library (physical)",
-    "online_resources": "online",
-}
-
-
 def _facet_value_label(facet_name: str, value: str) -> str:
-    """Prettify coded facet values; leave free-text values untouched."""
-    if facet_name == "tlevel":
-        return _TLEVEL_LABELS.get(value, value.replace("_", " "))
-    if facet_name == "rtype":
-        return value.replace("_", " ")
+    """Prettify coded facet values; leave free-text values untouched.
+
+    query.normalise_facet_value maps these labels back to the codes, so a
+    label copied into facet_filters still filters.
+    """
+    if facet_name in ("rtype", "tlevel"):
+        labels = FACET_VALUE_LABELS.get(facet_name, {})
+        return labels.get(value, value.replace("_", " "))
     return value
 
 
@@ -378,6 +467,8 @@ def format_search_results(
     peer_reviewed: bool | None = None,
     include_unavailable: bool | None = None,
     clauses: list[QueryClause | dict] | None = None,
+    facet_filters: dict[str, str] | None = None,
+    facet_exclusions: dict[str, str] | None = None,
 ) -> str:
     """Format search results as a compact numbered list.
 
@@ -396,6 +487,8 @@ def format_search_results(
         peer_reviewed=peer_reviewed,
         include_unavailable=include_unavailable,
         clauses=clauses,
+        facet_filters=facet_filters,
+        facet_exclusions=facet_exclusions,
     )
     query_label = search_query_label(query, field, clauses)
     query_links = _format_query_links(
@@ -491,6 +584,9 @@ def format_search_results(
             status_parts.append("Peer-reviewed")
         status_parts.append(f"Availability: {_format_availability(record)}")
         lines.append(f"    {' | '.join(status_parts)}")
+        other_libraries = _format_other_institutions(record)
+        if other_libraries:
+            lines.append(f"    Other libraries: {other_libraries}")
 
         location = _format_location(record)
         if location:
@@ -566,6 +662,9 @@ def format_record_detail(record: PrimoRecord, config: PrimoConfig | None = None)
 
     # Availability
     lines.append(f"\nAvailability: {_format_availability(record)}")
+    other_libraries = _format_other_institutions(record)
+    if other_libraries:
+        lines.append(f"Other libraries: {other_libraries}")
     for loc in record.locations:
         shelf = ", ".join(p for p in (loc.library, loc.location) if p)
         if loc.call_number:
