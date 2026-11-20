@@ -21,6 +21,9 @@ This is the canonical agent guidance file for this fork.
   `totalResultsPC` -1 (repeated up to twice, then flagged as
   `article_index_incomplete` so the output says articles are missing). The
   local-only scopes always report -1, so only the combined scope retries.
+- **Plugin environment:** uv's `.venv` lives in each version's own plugin
+  folder. A venv shared across versions in `${CLAUDE_PLUGIN_DATA}` broke the
+  first start after every update on Windows (see README, "The plugin").
 
 ## Key Files
 

@@ -116,8 +116,8 @@ turns on auto-update. From a shell,
 run `/reload-plugins` or start a new conversation.
 
 To remove the plugin, uninstall it from the plugin manager or run
-`/plugin uninstall primo-towson@cook-library`. Uninstalling also deletes the
-Python environment that uv made for it.
+`/plugin uninstall primo-towson@cook-library`. The Python environment that uv
+made for it lives in the plugin's own folder and is removed with it.
 
 ## Changes from upstream
 
@@ -204,13 +204,19 @@ Code starts with
 uv run --directory ${CLAUDE_PLUGIN_ROOT} --frozen primo-mcp-server
 ```
 
-and two environment variables:
+and one environment variable, `UV_PYTHON=>=3.11,<3.15`, which keeps uv off
+Python 3.15, for which the locked `pydantic-core` has no wheels yet. Raise
+the bound once `uv.lock` pins versions with 3.15 wheels.
 
-- `UV_PROJECT_ENVIRONMENT=${CLAUDE_PLUGIN_DATA}/venv` keeps the virtual
-  environment in the plugin's data directory, which survives plugin updates.
-- `UV_PYTHON=>=3.11,<3.15` keeps uv off Python 3.15, for which the locked
-  `pydantic-core` has no wheels yet. Raise the bound once `uv.lock` pins
-  versions with 3.15 wheels.
+uv makes the virtual environment in `.venv` inside `${CLAUDE_PLUGIN_ROOT}`,
+which is a separate folder for each plugin version, the way Claude Code
+itself installs a plugin's Node.js packages. Do not move it to the shared
+`${CLAUDE_PLUGIN_DATA}`: with one environment for every version, the first
+start after an update has to reinstall the project, and on Windows that
+fails while any open session still runs the old server
+(`failed to remove file ... primo-mcp-server.exe ... (os error 32)`, shown
+as "Connection closed"). Claude Code deletes an old version's folder, and
+its environment, 14 days after an update.
 
 `--frozen` installs exactly what `uv.lock` pins, so run `uv lock` after any
 dependency change. `--directory` starts the server in the plugin's own

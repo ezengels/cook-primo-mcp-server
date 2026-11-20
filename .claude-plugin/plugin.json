@@ -12,7 +12,6 @@
       "command": "uv",
       "args": ["run", "--directory", "${CLAUDE_PLUGIN_ROOT}", "--frozen", "primo-mcp-server"],
       "env": {
-        "UV_PROJECT_ENVIRONMENT": "${CLAUDE_PLUGIN_DATA}/venv",
         "UV_PYTHON": ">=3.11,<3.15"
       }
     }
