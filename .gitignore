@@ -9,6 +9,7 @@ build/
 .pytest_cache/
 .env
 .env.*
+.venv
 *.egg
 # Generated embedding cache for the librarian semantic fallback
 # (matches per-provider caches too, e.g. -embeddings-local.json)
