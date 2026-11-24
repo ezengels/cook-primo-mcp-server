@@ -74,7 +74,7 @@ uv run pytest -m live -v
 
 Defaults are Towson University (Cook Library OneSearch, view
 01USMAI_TU:01USMAI_TU). Other institutions can override these values with
-environment variables, but documentation and agent behaviour in this
+environment variables or fork this repository, but documentation and agent behavior in this
 repository should remain Towson-first.
 
 - PRIMO_BASE_URL -- Primo API base URL
