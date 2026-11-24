@@ -13,10 +13,7 @@ of [geheharidas/primo-mcp-server](https://github.com/geheharidas/primo-mcp-serve
 for a small group of pilot testers. The changes are listed under
 [Changes from upstream](#changes-from-upstream).
 
-The server uses only OneSearch's public search interface, the same requests
-the OneSearch web page makes for a signed-out visitor. It needs no Towson
-login, no Primo API key, and no Ex Libris developer account, and it sees only
-what a signed-out visitor sees.
+The server uses only OneSearch's public search interface, and does not require authentication through TU, USMAI, or ExLibris.
 
 ## Install the plugin
 
@@ -25,7 +22,9 @@ the Claude desktop app, or `claude` in a terminal. All three read the same
 plugin settings, so installing it in one makes it available in the others.
 It doesn't reach the desktop app's Chat tab or Cowork.
 
-### 1. Install Git and uv (once)
+### 1. Install dependencies Git and uv (once)
+
+Git is used to install the MCP server to Claude Code. UV is used to run python to support the server.
 
 Claude Code downloads the plugin with Git; without it, the install fails
 with "'git' not found". [uv](https://docs.astral.sh/uv/) starts the server.
